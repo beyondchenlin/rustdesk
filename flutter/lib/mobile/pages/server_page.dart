@@ -9,8 +9,10 @@ import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
 import '../../common.dart';
+import '../../common/widgets/bk_remote_devices_page.dart';
 import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
+import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
 import '../../utils/android_documents.dart';
@@ -211,6 +213,7 @@ class _ServerPageState extends State<ServerPage> {
                       mainAxisAlignment: MainAxisAlignment.start,
                       children: [
                         buildPresetPasswordWarningMobile(),
+                        const BkRemotePasswordSetup(),
                         gFFI.serverModel.isStart
                             ? ServerInfo()
                             : ServiceNotRunningNotification(),
@@ -616,8 +619,6 @@ class _PermissionCheckerState extends State<PermissionChecker> {
   Widget build(BuildContext context) {
     final serverModel = Provider.of<ServerModel>(context);
     final hasAudioPermission = androidVersion >= 30;
-    final hideStopService = isAndroid &&
-        bind.mainGetBuildinOption(key: kOptionHideStopService) == 'Y';
     final allowPermChangeInAcceptWindow = option2bool(
         kOptionEnablePermChangeInAcceptWindow,
         bind.mainGetBuildinOption(
@@ -629,25 +630,17 @@ class _PermissionCheckerState extends State<PermissionChecker> {
     return PaddingCard(
         title: translate("Permissions"),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          serverModel.mediaOk && !hideStopService
-              ? ElevatedButton.icon(
-                      style: ButtonStyle(
-                          backgroundColor:
-                              MaterialStateProperty.all(Colors.red)),
-                      icon: const Icon(Icons.stop),
-                      onPressed: serverModel.toggleService,
-                      label: Text(translate("Stop service")))
-                  .marginOnly(bottom: 8)
-              : SizedBox.shrink(),
-          if (!hideStopService || !serverModel.mediaOk)
-            PermissionRow(
-                translate("Screen Capture"),
-                serverModel.mediaOk,
-                !serverModel.mediaOk &&
-                        gFFI.userModel.userName.value.isEmpty &&
-                        bind.mainGetLocalOption(key: "show-scam-warning") != "N"
-                    ? () => showScamWarning(context, serverModel)
-                    : serverModel.toggleService),
+          PermissionRow(
+            translate("Screen Capture"),
+            serverModel.mediaOk,
+            !serverModel.isStart &&
+                    !serverModel.mediaOk &&
+                    gFFI.userModel.userName.value.isEmpty &&
+                    bind.mainGetLocalOption(key: "show-scam-warning") != "N"
+                ? () => showScamWarning(context, serverModel)
+                : serverModel.toggleScreenCapture,
+            enabled: !permissionChangeLocked,
+          ),
           PermissionRow(
             translate("Input Control"),
             serverModel.inputOk,
@@ -944,15 +937,16 @@ class ClientInfo extends StatelessWidget {
   }
 }
 
-void androidChannelInit() {
-  gFFI.setMethodCallHandler((method, arguments) {
+void androidChannelInit({FFI? ffi}) {
+  final target = ffi ?? gFFI;
+  target.setMethodCallHandler((method, arguments) {
     debugPrint("flutter got android msg,$method,$arguments");
     try {
       switch (method) {
         case "start_capture":
           {
-            gFFI.dialogManager.dismissAll();
-            gFFI.serverModel.updateClientState();
+            target.dialogManager.dismissAll();
+            target.serverModel.updateClientState();
             break;
           }
         case "on_state_changed":
@@ -960,7 +954,7 @@ void androidChannelInit() {
             var name = arguments["name"] as String;
             var value = arguments["value"] as String == "true";
             debugPrint("from jvm:on_state_changed,$name:$value");
-            gFFI.serverModel.changeStatue(name, value);
+            target.serverModel.changeStatue(name, value);
             break;
           }
         case "on_android_permission_result":
@@ -972,7 +966,7 @@ void androidChannelInit() {
           }
         case "on_media_projection_canceled":
           {
-            gFFI.serverModel.stopService();
+            target.serverModel.onMediaProjectionCanceled();
             break;
           }
         case "msgbox":
@@ -981,15 +975,15 @@ void androidChannelInit() {
             var title = arguments["title"] as String;
             var text = arguments["text"] as String;
             var link = (arguments["link"] ?? '') as String;
-            msgBox(gFFI.sessionId, type, title, text, link, gFFI.dialogManager);
+            msgBox(target.sessionId, type, title, text, link, target.dialogManager);
             break;
           }
         case "stop_service":
           {
             print(
-                "stop_service by kotlin, isStart:${gFFI.serverModel.isStart}");
-            if (gFFI.serverModel.isStart) {
-              gFFI.serverModel.stopService();
+                "stop_service by kotlin, isStart:${target.serverModel.isStart}");
+            if (target.serverModel.isStart) {
+              target.serverModel.toggleService();
             }
             break;
           }

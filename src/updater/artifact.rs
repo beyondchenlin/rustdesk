@@ -104,6 +104,34 @@ pub(super) fn verified_update_artifact_from_release_page_url(
     update_url: &str,
     query: &UpdateArtifactQuery<'_>,
 ) -> ResultType<VerifiedUpdateArtifact> {
+    let channel = crate::bk_updates::channel()?;
+    let release_id = channel.release_id(update_url)?;
+    let display_version = display_version_from_release_id(&release_id)?;
+    if hbb_common::get_version_number(&display_version) <= hbb_common::get_version_number(crate::VERSION) {
+        bail!("The signed update must be newer than the installed product");
+    }
+    let expected_artifact_url_prefix = channel.download_prefix(&release_id)?;
+    let metadata_url = format!("{expected_artifact_url_prefix}bk-remote-update.json");
+    let signature_url = format!("{metadata_url}.sig");
+    let metadata_bytes = fetch_update_sidecar_bytes(&metadata_url)?;
+    let signature_bytes = fetch_update_sidecar_bytes(&signature_url)?;
+    let requirements = UpdateMetadataRequirements {
+        expected_version: &display_version,
+        expected_release_id: &release_id,
+        expected_artifact_url_prefix: &expected_artifact_url_prefix,
+        artifact: *query,
+    };
+    crate::update_metadata::verify_bk_update_metadata(
+        &metadata_bytes, &signature_bytes, requirements, &channel.key_id, channel.public_key,
+    )
+}
+
+// Preserve upstream verification for maintenance; BK entry points use their own trust above.
+#[allow(dead_code)]
+fn verified_upstream_update_artifact_from_release_page_url(
+    update_url: &str,
+    query: &UpdateArtifactQuery<'_>,
+) -> ResultType<VerifiedUpdateArtifact> {
     let release_id = release_id_from_update_url(update_url)?;
     let display_version = display_version_from_release_id(&release_id)?;
     let expected_artifact_url_prefix =
@@ -155,6 +183,11 @@ fn read_limited_response_bytes<R: Read>(
 }
 
 pub fn get_update_download_file_from_url(url: &str) -> Option<PathBuf> {
+    let channel = crate::bk_updates::channel().ok()?;
+    get_update_download_file_for_repository(url, &channel.repository)
+}
+
+fn get_update_download_file_for_repository(url: &str, repository: &str) -> Option<PathBuf> {
     let parsed = url::Url::parse(url).ok()?;
     // Check the raw prefix before Url normalizes default ports.
     if !url.starts_with("https://github.com/")
@@ -177,8 +210,7 @@ pub fn get_update_download_file_from_url(url: &str) -> Option<PathBuf> {
     let tag = segments.next()?;
     let filename = segments.next()?;
 
-    if owner != "rustdesk"
-        || repo != "rustdesk"
+    if format!("{owner}/{repo}") != repository
         || releases != "releases"
         || download != "download"
         || tag.is_empty()
@@ -213,8 +245,9 @@ mod tests {
 
     #[test]
     fn update_download_file_accepts_expected_github_asset_urls() {
-        let file = get_update_download_file_from_url(
+        let file = get_update_download_file_for_repository(
             "https://github.com/rustdesk/rustdesk/releases/download/1.4.0/rustdesk-1.4.0-x86_64.dmg",
+            "rustdesk/rustdesk",
         )
         .expect("valid GitHub release asset URL");
 
@@ -222,6 +255,22 @@ mod tests {
             file.file_name().and_then(|name| name.to_str()),
             Some("rustdesk-1.4.0-x86_64.dmg")
         );
+    }
+
+    #[test]
+    fn bk_download_path_rejects_upstream_and_other_repository_assets() {
+        let own = "https://github.com/team/bk-remote/releases/download/9.2.3/BK-Remote.exe";
+        assert!(get_update_download_file_for_repository(own, "team/bk-remote").is_some());
+        for foreign in [
+            "https://github.com/rustdesk/rustdesk/releases/download/9.2.3/rustdesk.exe",
+            "https://github.com/other/bk-remote/releases/download/9.2.3/BK-Remote.exe",
+        ] {
+            assert!(get_update_download_file_for_repository(foreign, "team/bk-remote").is_none());
+        }
+        // This product must never stage an upstream installer, including direct downloads.
+        assert!(get_update_download_file_from_url(
+            "https://github.com/rustdesk/rustdesk/releases/download/9.2.3/rustdesk.exe",
+        ).is_none());
     }
 
     #[test]
@@ -239,7 +288,7 @@ mod tests {
             "https://github.com/rustdesk/rustdesk/releases/download/1/rustdesk.exe#download",
             "not a url",
         ] {
-            assert!(get_update_download_file_from_url(url).is_none(), "{url}");
+            assert!(get_update_download_file_for_repository(url, "rustdesk/rustdesk").is_none(), "{url}");
         }
     }
 }

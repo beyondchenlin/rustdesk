@@ -1,3 +1,5 @@
+import 'package:flutter_hbb/common/widgets/bk_remote_profiles_page.dart';
+import 'package:flutter_hbb/common/widgets/bk_remote_update_channel.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -14,7 +16,6 @@ import 'package:flutter_hbb/common/widgets/keyboard_shortcuts/page_body.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_keyboard_shortcuts_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
-import 'package:flutter_hbb/mobile/widgets/dialog.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/printer_model.dart';
 import 'package:flutter_hbb/models/server_model.dart';
@@ -27,6 +28,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
+import '../../common/widgets/bk_remote_devices_page.dart';
 
 const double _kTabWidth = 200;
 const double _kTabHeight = 42;
@@ -415,7 +417,6 @@ class _GeneralState extends State<_General> {
     return ListView(
       controller: scrollController,
       children: [
-        if (!isWeb) service(),
         theme(),
         _Card(title: 'Language', children: [language()]),
         if (!isWeb) hwcodec(),
@@ -424,6 +425,7 @@ class _GeneralState extends State<_General> {
         if (!isWeb) WaylandCard(),
         other(),
         if (!bind.isIncomingOnly()) keyboardShortcuts(),
+        if (!isWeb) service(),
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
   }
@@ -506,17 +508,50 @@ class _GeneralState extends State<_General> {
         return const Offstage();
       }
 
-      return _Card(title: 'Service', children: [
-        _Button(serviceStop.value ? 'Start' : 'Stop', () {
-          () async {
+      return _Card(
+          title: 'Remote maintenance',
+          title_suffix: serviceStop.value
+              ? null
+              : [
+                  Icon(Icons.warning_amber_rounded,
+                          color: Theme.of(context).colorScheme.error)
+                      .marginOnly(right: _kContentHMargin)
+                ],
+          children: [
+        if (!serviceStop.value)
+          Text(translate('remote_service_stop_warning'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error))
+              .marginOnly(left: _kContentHMargin, bottom: 8),
+        _Button(serviceStop.value ? 'Start' : 'Stop service', () {
+          final shouldStart = serviceStop.value;
+          performToggle() async {
             serviceBtnEnabled.value = false;
-            await start_service(serviceStop.value);
+            await start_service(shouldStart);
             // enable the button after 1 second
             Future.delayed(const Duration(seconds: 1), () {
               serviceBtnEnabled.value = true;
             });
-          }();
-        }, enabled: serviceBtnEnabled.value)
+          }
+
+          if (shouldStart) {
+            performToggle();
+          } else {
+            CommonConfirmDialog(
+              gFFI.dialogManager,
+              translate('remote_service_stop_warning'),
+              () {
+                performToggle();
+              },
+              defaultCancel: true,
+            );
+          }
+        },
+            enabled: serviceBtnEnabled.value,
+            style: serviceStop.value
+                ? null
+                : ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Theme.of(context).colorScheme.onError))
       ]);
     });
   }
@@ -525,7 +560,10 @@ class _GeneralState extends State<_General> {
     final incomingOnly = bind.isIncomingOnly();
     final outgoingOnly = bind.isOutgoingOnly();
     final showAutoUpdate = (isWindows && bind.mainIsInstalled()) ||
-    (isMacOS && bind.mainIsInstalled() && bind.mainIsInstalledDaemon(prompt: false) && !bind.isCustomClient());
+        (isMacOS &&
+            bind.mainIsInstalled() &&
+            bind.mainIsInstalledDaemon(prompt: false) &&
+            (!bind.isCustomClient() || bind.mainUriPrefixSync() == 'bkremote://'));
     final children = <Widget>[
       if (!isWeb && !incomingOnly)
         _OptionCheckBox(context, 'Confirm before closing multiple tabs',
@@ -593,12 +631,21 @@ class _GeneralState extends State<_General> {
             ),
           ),
       ],
-      if (!isWeb && !bind.isCustomClient())
+      if (!isWeb &&
+          (!bind.isCustomClient() || bind.mainUriPrefixSync() == 'bkremote://'))
         _OptionCheckBox(
           context,
           'Check for software update on startup',
           kOptionEnableCheckUpdate,
           isServer: false,
+        ),
+      if (!isWeb &&
+          (!bind.isCustomClient() ||
+              bind.mainUriPrefixSync() == 'bkremote://' ||
+              showAutoUpdate))
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: _kContentHSubMargin),
+          child: BkRemoteUpdateChannelNotice(),
         ),
       if (showAutoUpdate)
         _OptionCheckBox(
@@ -1145,15 +1192,16 @@ class _SafetyState extends State<_Safety> with AutomaticKeepAliveClientMixin {
               child: _OptionCheckBox(context, "Enable trusted devices",
                   kOptionEnableTrustedDevices,
                   optSetter: (key, value) async {
-                try {
-                  await mainSetBoolOption(key, value);
-                } catch (error) {
-                  showToast(error.toString());
-                }
-              },
-                  enabled: !locked, update: (v) {
-                setState(() {});
-              }),
+                    try {
+                      await mainSetBoolOption(key, value);
+                    } catch (error) {
+                      showToast(error.toString());
+                    }
+                  },
+                  enabled: !locked,
+                  update: (v) {
+                    setState(() {});
+                  }),
             ),
           ),
           if (mainGetBoolOptionSync(kOptionEnableTrustedDevices))
@@ -1928,8 +1976,9 @@ class _NetworkState extends State<_Network> with AutomaticKeepAliveClientMixin {
               if (!hideServer)
                 listTile(
                   icon: Icons.dns_outlined,
-                  title: 'ID/Relay Server',
-                  onTap: () => showServerSettings(gFFI.dialogManager, setState),
+                  title: 'Server profiles',
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const BkRemoteProfilesPage())),
                 ),
               if (!hideProxy && !hideServer) divider,
               if (!hideProxy)
@@ -2285,7 +2334,14 @@ class _AccountState extends State<_Account> {
     return ListView(
       controller: scrollController,
       children: [
-        _Card(title: 'Account', children: [accountAction(), useInfo()]),
+        _Card(title: 'Account', children: [
+          accountAction(),
+          useInfo(),
+          const BkRemotePasswordSetup(),
+          _Button('Team devices', () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const BkRemoteDevicesPage()),
+          )),
+        ]),
       ],
     ).marginOnly(bottom: _kListViewBottomMargin);
   }

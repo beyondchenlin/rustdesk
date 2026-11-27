@@ -6,6 +6,7 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/widgets/bk_remote_devices_page.dart';
 import 'package:flutter_hbb/common/widgets/animated_rotation_widget.dart';
 import 'package:flutter_hbb/common/widgets/custom_password.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -80,6 +81,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
     final isOutgoingOnly = bind.isOutgoingOnly();
     final children = <Widget>[
       if (!isOutgoingOnly) buildPresetPasswordWarning(),
+      if (!isOutgoingOnly) const BkRemotePasswordSetup(),
       if (bind.isCustomClient())
         Align(
           alignment: Alignment.center,
@@ -439,14 +441,16 @@ class _DesktopHomePageState extends State<DesktopHomePage>
         await start_service(true);
       });
     }
-    if (!bind.isCustomClient() &&
+    if ((!bind.isCustomClient() ||
+            bind.mainUriPrefixSync() == 'bkremote://') &&
         updateUrl.isNotEmpty &&
         !isCardClosed &&
-        bind.mainUriPrefixSync().contains('rustdesk')) {
+        (bind.mainUriPrefixSync().contains('rustdesk') ||
+            bind.mainUriPrefixSync() == 'bkremote://')) {
       final isToUpdate = (isWindows || isMacOS) && bind.mainIsInstalled();
       String btnText = isToUpdate ? 'Update' : 'Download';
       GestureTapCallback onPressed = () async {
-        final Uri url = Uri.parse('https://rustdesk.com/download');
+        final Uri url = Uri.parse(updateUrl);
         await launchUrl(url);
       };
       if (isToUpdate) {
@@ -461,9 +465,7 @@ class _DesktopHomePageState extends State<DesktopHomePage>
           onPressed,
           closeButton: true,
           help: isToUpdate ? 'Changelog' : null,
-          link: isToUpdate
-              ? 'https://github.com/rustdesk/rustdesk/releases/tag/${bind.mainGetNewVersion()}'
-              : null);
+          link: isToUpdate ? updateUrl : null);
     }
     if (systemError.isNotEmpty) {
       return buildInstallCard("", systemError, "", () {});

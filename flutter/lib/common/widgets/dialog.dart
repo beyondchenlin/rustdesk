@@ -2680,7 +2680,8 @@ void setSharedAbPasswordDialog(String abName, Peer peer) {
 }
 
 void CommonConfirmDialog(OverlayDialogManager dialogManager, String content,
-    VoidCallback onConfirm) {
+    VoidCallback onConfirm,
+    {bool defaultCancel = false}) {
   dialogManager.show((setState, close, context) {
     submit() {
       close();
@@ -2701,7 +2702,7 @@ void CommonConfirmDialog(OverlayDialogManager dialogManager, String content,
         dialogButton(translate("Cancel"), onPressed: close, isOutline: true),
         dialogButton(translate("OK"), onPressed: submit),
       ],
-      onSubmit: submit,
+      onSubmit: defaultCancel ? close : submit,
       onCancel: close,
     );
   });

@@ -342,14 +342,14 @@ class GroupModel {
     }
   }
 
-  reset() async {
+  Future<void> reset({bool clearCache = true}) async {
     initialized = false;
     groupLoadError.value = '';
     deviceGroups.clear();
     users.clear();
     peers.clear();
     selectedAccessibleItemName.value = '';
-    await bind.mainClearGroup();
+    if (clearCache) await bind.mainClearGroup();
   }
 
   void _callbackPeerUpdate() {

@@ -3,7 +3,9 @@ import 'package:flutter_hbb/mobile/pages/server_page.dart';
 import 'package:flutter_hbb/mobile/pages/settings_page.dart';
 import 'package:flutter_hbb/web/settings_page.dart';
 import 'package:get/get.dart';
+import 'package:provider/provider.dart';
 import '../../common.dart';
+import '../../common/widgets/bk_remote_devices_page.dart';
 import '../../common/widgets/chat_page.dart';
 import '../../models/platform_model.dart';
 import '../../models/state_model.dart';
@@ -102,7 +104,14 @@ class HomePageState extends State<HomePage> {
               }
             }),
           ),
-          body: _pages.elementAt(_selectedIndex),
+          body: ChangeNotifierProvider.value(
+            value: gFFI.serverModel,
+            child: Column(children: [
+              if (isAndroid && _selectedIndex == 0 && !bind.isOutgoingOnly())
+                const BkRemotePasswordSetup(),
+              Expanded(child: _pages.elementAt(_selectedIndex)),
+            ]),
+          ),
         ));
   }
 
@@ -249,12 +258,12 @@ class WebHomePage extends StatelessWidget {
       }
     }
     if (id != null) {
-      connect(context, id, 
-        isFileTransfer: isFileTransfer, 
-        isViewCamera: isViewCamera, 
-        isTerminal: isTerminal,
-        loginMethod: loginMethod,
-        password: password);
+      connect(context, id,
+          isFileTransfer: isFileTransfer,
+          isViewCamera: isViewCamera,
+          isTerminal: isTerminal,
+          loginMethod: loginMethod,
+          password: password);
     }
   }
 }

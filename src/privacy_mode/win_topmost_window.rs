@@ -30,7 +30,7 @@ use winapi::{
 pub(super) const PRIVACY_MODE_IMPL: &str = "privacy_mode_impl_mag";
 
 pub const ORIGIN_PROCESS_EXE: &'static str = "C:\\Windows\\System32\\RuntimeBroker.exe";
-pub const WIN_TOPMOST_INJECTED_PROCESS_EXE: &'static str = "RuntimeBroker_rustdesk.exe";
+pub const WIN_TOPMOST_INJECTED_PROCESS_EXE: &'static str = crate::bk_windows_process::PRIVATE_HOST_EXE;
 pub const INJECTED_PROCESS_EXE: &'static str = WIN_TOPMOST_INJECTED_PROCESS_EXE;
 pub(super) const PRIVACY_WINDOW_CLASS: &'static str = "RustDeskPrivacyWindowClass";
 pub(super) const PRIVACY_WINDOW_NAME: &'static str = "RustDeskPrivacyWindow";
@@ -492,6 +492,7 @@ fn wait_find_privacy_hwnds_impl(msecs: u128, require_visible: bool) -> ResultTyp
 }
 
 fn find_privacy_hwnds() -> ResultType<Vec<HWND>> {
+    let expected_process = crate::bk_windows_process::private_host_path()?;
     let class_name = CString::new(PRIVACY_WINDOW_CLASS)?;
     let wndname = CString::new(PRIVACY_WINDOW_NAME)?;
     let mut hwnds = Vec::new();
@@ -507,7 +508,18 @@ fn find_privacy_hwnds() -> ResultType<Vec<HWND>> {
             if hwnd.is_null() {
                 break;
             }
-            hwnds.push(hwnd);
+            // The upstream DLL keeps its window class, but an identically named
+            // window from another product must never become our privacy window.
+            let mut process_id = 0;
+            if GetWindowThreadProcessId(hwnd, &mut process_id) != 0
+                && crate::bk_windows_process::process_matches_path(
+                    process_id,
+                    &expected_process,
+                )
+                .unwrap_or(false)
+            {
+                hwnds.push(hwnd);
+            }
             after = hwnd;
         }
     }

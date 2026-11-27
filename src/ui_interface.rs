@@ -255,7 +255,7 @@ pub fn get_builtin_option(key: &str) -> String {
 
 #[inline]
 pub fn set_local_option(key: String, value: String) {
-    LocalConfig::set_option(key.clone(), value);
+    crate::bk_remote::set_local_option(key, value);
 }
 
 /// Resolve relative avatar path (e.g. "/avatar/xxx") to absolute URL
@@ -458,6 +458,13 @@ pub fn set_auth_option(key: String, value: String) -> hbb_common::ResultType<()>
 
 #[inline]
 pub fn set_option(key: String, value: String) {
+    if crate::bk_profiles::current() != crate::bk_profiles::Profile::Manual
+        && ["custom-rendezvous-server", "relay-server", "api-server", "key"].contains(&key.as_str())
+        && get_option(&key) != value
+    {
+        log::warn!("Server address edits require the manual server profile");
+        return;
+    }
     if key == "2fa"
         || key == keys::OPTION_ENABLE_TRUSTED_DEVICES
         || key == keys::OPTION_TRUSTED_DEVICE_EXPIRATION
@@ -884,7 +891,7 @@ pub fn remove_discovered(id: String) {
 
 #[inline]
 pub fn get_uuid() -> String {
-    crate::encode64(hbb_common::get_uuid())
+    crate::encode64(crate::bk_profiles::uuid())
 }
 
 #[inline]
@@ -1145,7 +1152,7 @@ pub fn deploy_device(token: String, new_id: Option<String>) -> DeployResult {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let local_id = ipc::get_id();
     let id_to_deploy = new_id.clone().unwrap_or_else(|| local_id.clone());
-    let uuid = crate::encode64(hbb_common::get_uuid());
+    let uuid = crate::encode64(crate::bk_profiles::uuid());
     let pk = crate::encode64(Config::get_key_pair().1);
     let body = serde_json::json!({
         "id": id_to_deploy,
@@ -1563,15 +1570,7 @@ pub async fn change_id_shared_(id: String, old_id: String) -> &'static str {
         return INVALID_FORMAT;
     }
 
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let uuid = Bytes::from(
-        hbb_common::machine_uid::get()
-            .unwrap_or("".to_owned())
-            .as_bytes()
-            .to_vec(),
-    );
-    #[cfg(any(target_os = "android", target_os = "ios"))]
-    let uuid = Bytes::from(hbb_common::get_uuid());
+    let uuid = Bytes::from(crate::bk_profiles::uuid());
 
     if uuid.is_empty() {
         log::error!("Failed to change id, uuid is_empty");
@@ -1581,7 +1580,7 @@ pub async fn change_id_shared_(id: String, old_id: String) -> &'static str {
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let rendezvous_servers = crate::ipc::get_rendezvous_servers(1_000).await;
     #[cfg(any(target_os = "android", target_os = "ios"))]
-    let rendezvous_servers = Config::get_rendezvous_servers();
+    let rendezvous_servers = crate::bk_profiles::rendezvous_servers();
 
     let mut futs = Vec::new();
     let err: Arc<Mutex<&str>> = Default::default();

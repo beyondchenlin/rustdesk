@@ -489,6 +489,10 @@ impl Client {
             }
         };
 
+        if rendezvous_server.is_empty() {
+            bail!("Configure the selected server profile before connecting");
+        }
+
         // Same relay gate as the v6 socket below: under any forced relay the v6 punch cannot
         // be used, so probing v6 reachability is wasted work on every such connection.
         if crate::get_ipv6_punch_enabled() && !interface.is_force_relay() {
@@ -3784,7 +3788,7 @@ impl LoginConfigHandler {
     ) -> Message {
         let my_id = Config::get_id();
         let (my_id, pure_id) = if let Some((id, _, _)) = self.other_server.as_ref() {
-            let server = Config::get_rendezvous_server();
+            let server = crate::bk_profiles::rendezvous_server();
             (format!("{my_id}@{server}"), id.clone())
         } else {
             (my_id, self.id.clone())
@@ -5364,6 +5368,29 @@ pub mod peer_online {
                 }
             }
         }
+    }
+
+    /// BK team-list observations use the main port and an authenticated signed response.
+    /// The proxy comes from the current service snapshot; no global-config fallback is used.
+    pub(crate) async fn query_signed_registration(
+        server: &str,
+        proxy: Option<&hbb_common::config::Socks5Server>,
+        request: &RendezvousMessage,
+    ) -> ResultType<Vec<u8>> {
+        hbb_common::tokio::time::timeout(std::time::Duration::from_secs(6), async {
+            let framed = match proxy {
+                Some(settings) => hbb_common::tcp::FramedStream::connect(server, None, settings, 3000).await?,
+                None => hbb_common::tcp::FramedStream::new(server, None, 3000).await?,
+            };
+            let mut socket = Stream::Tcp(framed);
+            socket.set_max_packet_length(1024);
+            socket.set_send_timeout(1000);
+            socket.send(request).await?;
+            match crate::get_next_nonkeyexchange_msg(&mut socket, Some(2000)).await {
+                Some(RendezvousMessage { union: Some(rendezvous_message::Union::OnlineResponse(response)), .. }) => Ok(response.states.to_vec()),
+                _ => bail!("Authenticated native registration response is unavailable"),
+            }
+        }).await?
     }
 
     async fn create_online_stream() -> ResultType<Stream> {

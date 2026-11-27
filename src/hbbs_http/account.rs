@@ -1,6 +1,6 @@
 use super::HbbHttpResponse;
 use crate::hbbs_http::create_http_client_with_url;
-use hbb_common::{config::LocalConfig, log, ResultType};
+use hbb_common::{log, ResultType};
 use serde_derive::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{
@@ -303,12 +303,8 @@ impl OidcSession {
                     }
                     if auth_body.r#type == "access_token" {
                         if remember_me {
-                            LocalConfig::set_option(
-                                "access_token".to_owned(),
+                            crate::bk_remote::set_account_session(
                                 auth_body.access_token.clone(),
-                            );
-                            LocalConfig::set_option(
-                                "user_info".to_owned(),
                                 serde_json::json!({
                                     "name": auth_body.user.name,
                                     "display_name": auth_body.user.display_name,

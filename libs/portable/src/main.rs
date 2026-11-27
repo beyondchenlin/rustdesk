@@ -9,6 +9,9 @@ use bin_reader::{normalize_path, BinaryReader};
 
 pub mod bin_reader;
 #[cfg(windows)]
+#[path = "../../../src/bk_windows_process.rs"]
+mod bk_windows_process;
+#[cfg(windows)]
 mod ui;
 
 #[cfg(windows)]
@@ -317,11 +320,11 @@ fn main() -> Result<(), String> {
 
 #[cfg(windows)]
 mod win {
-    use std::{fs, os::windows::process::CommandExt, path::Path, process::Command};
+    use std::{fs, path::Path};
 
     // Used for privacy mode(magnifier impl).
     pub const RUNTIME_BROKER_EXE: &'static str = "C:\\Windows\\System32\\RuntimeBroker.exe";
-    pub const WIN_TOPMOST_INJECTED_PROCESS_EXE: &'static str = "RuntimeBroker_rustdesk.exe";
+    pub const WIN_TOPMOST_INJECTED_PROCESS_EXE: &'static str = crate::bk_windows_process::PRIVATE_HOST_EXE;
 
     pub(super) fn schedule_verified_update_cleanup() -> std::io::Result<()> {
         use windows::{
@@ -363,11 +366,15 @@ mod win {
                 }
             }
         }
-        let _allow_err = Command::new("taskkill")
-            .args(&["/F", "/IM", "RuntimeBroker_rustdesk.exe"])
-            .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
-            .output();
-        let _allow_err = std::fs::copy(src, &format!("{}\\{}", dir.to_string_lossy(), tgt));
+        if target_file.exists() {
+            if let Err(error) = crate::bk_windows_process::stop_matching_processes(&target_file) {
+                eprintln!("Cannot verify the private broker for update: {error}");
+                return;
+            }
+        }
+        if let Err(error) = std::fs::copy(src, &target_file) {
+            eprintln!("Cannot copy the private broker: {error}");
+        }
     }
 
     /// Check if the executable is a Quick Support version.

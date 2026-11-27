@@ -95,13 +95,13 @@ class AbModel {
     }
   }
 
-  reset() async {
+  Future<void> reset({bool clearCache = true}) async {
     print("reset ab model");
     addressbooks.clear();
     _currentName.value = '';
     _listPullError.value = '';
     _pulledOnce = false;
-    await bind.mainClearAb();
+    if (clearCache) await bind.mainClearAb();
     listInitialized = false;
   }
 

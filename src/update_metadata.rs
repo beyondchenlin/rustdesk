@@ -27,7 +27,7 @@ const METADATA_SCHEMA_VERSION: u32 = 1;
 const SIGNATURE_SCHEMA_VERSION: u32 = 1;
 const SIGNATURE_ALGORITHM: &str = "ed25519";
 
-const TRUSTED_UPDATE_KEYS: &[TrustedUpdateKey] = &[TrustedUpdateKey {
+const TRUSTED_UPDATE_KEYS: &[TrustedUpdateKey<'static>] = &[TrustedUpdateKey {
     key_id: "2026-ed25519-main",
     algorithm: SIGNATURE_ALGORITHM,
     public_key: [
@@ -68,8 +68,8 @@ struct UpdateSignature {
     signature: String,
 }
 
-struct TrustedUpdateKey {
-    key_id: &'static str,
+struct TrustedUpdateKey<'a> {
+    key_id: &'a str,
     algorithm: &'static str,
     public_key: [u8; 32],
 }
@@ -102,8 +102,10 @@ pub(crate) struct VerifiedUpdateArtifact {
 struct VerificationOptions<'a> {
     requirements: MetadataRequirements<'a>,
     expected_package_id: &'a str,
+    expected_app: &'a str,
+    signature_context: &'a [u8],
     artifact_url_policy: ArtifactUrlPolicy<'a>,
-    trusted_keys: &'a [TrustedUpdateKey],
+    trusted_keys: &'a [TrustedUpdateKey<'a>],
 }
 
 #[derive(Clone, Copy)]
@@ -129,7 +131,7 @@ fn verify_update_metadata_with_options(
             key.key_id == update_signature.key_id && key.algorithm == update_signature.algorithm
         })
         .ok_or_else(|| anyhow!("unsupported update signature key"))?;
-    verify_metadata_signature(metadata_bytes, &signature, trusted_key)?;
+    verify_metadata_signature(metadata_bytes, &signature, trusted_key, options.signature_context)?;
     let metadata: UpdateMetadata =
         serde_json::from_slice(metadata_bytes).context("invalid update metadata JSON")?;
     validate_metadata(&metadata, &update_signature, &options)?;
@@ -163,10 +165,36 @@ pub(crate) fn verify_update_metadata(
         VerificationOptions {
             requirements: metadata_requirements,
             expected_package_id: PUBLIC_UPDATE_PACKAGE_ID,
+            expected_app: UPDATE_APP,
+            signature_context: UPDATE_METADATA_SIGNATURE_CONTEXT,
             artifact_url_policy,
             trusted_keys: TRUSTED_UPDATE_KEYS,
         },
     )
+}
+
+pub(crate) fn verify_bk_update_metadata(
+    metadata_bytes: &[u8],
+    signature_bytes: &[u8],
+    requirements: UpdateMetadataRequirements<'_>,
+    key_id: &str,
+    public_key: [u8; 32],
+) -> ResultType<VerifiedUpdateArtifact> {
+    let trusted_keys = [TrustedUpdateKey {
+        key_id, algorithm: SIGNATURE_ALGORITHM, public_key,
+    }];
+    verify_update_metadata_with_options(metadata_bytes, signature_bytes, VerificationOptions {
+        requirements: MetadataRequirements {
+            expected_version: requirements.expected_version,
+            expected_release_id: requirements.expected_release_id,
+            artifact: requirements.artifact,
+        },
+        expected_package_id: crate::bk_updates::PACKAGE_ID,
+        expected_app: crate::bk_updates::PACKAGE_ID,
+        signature_context: crate::bk_updates::SIGNATURE_CONTEXT,
+        artifact_url_policy: ArtifactUrlPolicy::ExactPrefix(requirements.expected_artifact_url_prefix),
+        trusted_keys: &trusted_keys,
+    })
 }
 
 fn validate_signature_schema(signature: &UpdateSignature) -> ResultType<()> {
@@ -194,12 +222,13 @@ fn decode_signature(encoded: &str) -> ResultType<Signature> {
 fn verify_metadata_signature(
     metadata_bytes: &[u8],
     signature: &Signature,
-    trusted_key: &TrustedUpdateKey,
+    trusted_key: &TrustedUpdateKey<'_>,
+    signature_context: &[u8],
 ) -> ResultType<()> {
     init_sodiumoxide()?;
     let mut signed_bytes =
-        Vec::with_capacity(UPDATE_METADATA_SIGNATURE_CONTEXT.len() + metadata_bytes.len());
-    signed_bytes.extend_from_slice(UPDATE_METADATA_SIGNATURE_CONTEXT);
+        Vec::with_capacity(signature_context.len() + metadata_bytes.len());
+    signed_bytes.extend_from_slice(signature_context);
     signed_bytes.extend_from_slice(metadata_bytes);
     if !verify_detached(signature, &signed_bytes, &PublicKey(trusted_key.public_key)) {
         return Err(anyhow!("invalid update metadata signature"));
@@ -229,7 +258,7 @@ fn validate_metadata(
     if metadata.signature_key_id != signature.key_id {
         return Err(anyhow!("update metadata signature key id mismatch"));
     }
-    if metadata.app != UPDATE_APP {
+    if metadata.app != options.expected_app {
         return Err(anyhow!("update metadata app mismatch"));
     }
     if metadata.package_id != options.expected_package_id {
@@ -269,3 +298,7 @@ fn select_artifact<'a>(
 #[cfg(test)]
 #[path = "update_metadata_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "bk_update_metadata_tests.rs"]
+mod bk_tests;

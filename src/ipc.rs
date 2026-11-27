@@ -807,7 +807,7 @@ impl CheckIfRestart {
     pub fn new() -> CheckIfRestart {
         CheckIfRestart {
             stop_service: Config::get_option("stop-service"),
-            rendezvous_servers: Config::get_rendezvous_servers(),
+            rendezvous_servers: crate::bk_profiles::rendezvous_servers(),
             audio_input: Config::get_option("audio-input"),
             voice_call_input: Config::get_option("voice-call-input"),
             ws: Config::get_option(OPTION_ALLOW_WEBSOCKET),
@@ -828,7 +828,7 @@ impl Drop for CheckIfRestart {
             != Config::get_option(keys::OPTION_ALLOW_INSECURE_TLS_FALLBACK);
         if allow_insecure_tls_fallback_changed
             || self.stop_service != Config::get_option("stop-service")
-            || self.rendezvous_servers != Config::get_rendezvous_servers()
+            || self.rendezvous_servers != crate::bk_profiles::rendezvous_servers()
             || self.ws != Config::get_option(OPTION_ALLOW_WEBSOCKET)
             || self.disable_udp != Config::get_option(keys::OPTION_DISABLE_UDP)
             || self.api_server != Config::get_option("api-server")
@@ -962,7 +962,9 @@ async fn handle(data: Data, stream: &mut Connection) {
         Data::Config((name, value)) => match value {
             None => {
                 let value;
-                if name == "id" {
+                if name == "bk-profile" {
+                    value = Some(crate::bk_profiles::probe_identity());
+                } else if name == "id" {
                     value = Some(Config::get_id());
                 } else if name == "temporary-password" {
                     value = Some(password::temporary_password());
@@ -986,11 +988,11 @@ async fn handle(data: Data, stream: &mut Connection) {
                 } else if name == "rendezvous_server" {
                     value = Some(format!(
                         "{},{}",
-                        Config::get_rendezvous_server(),
-                        Config::get_rendezvous_servers().join(",")
+                        crate::bk_profiles::rendezvous_server(),
+                        crate::bk_profiles::rendezvous_servers().join(",")
                     ));
                 } else if name == "rendezvous_servers" {
-                    value = Some(Config::get_rendezvous_servers().join(","));
+                    value = Some(crate::bk_profiles::rendezvous_servers().join(","));
                 } else if name == "fingerprint" {
                     value = if Config::get_key_confirmed() {
                         Some(crate::common::pk_to_fingerprint(Config::get_key_pair().1))
@@ -1014,6 +1016,17 @@ async fn handle(data: Data, stream: &mut Connection) {
                 allow_err!(stream.send(&Data::Config((name, value))).await);
             }
             Some(value) => {
+                #[cfg(windows)]
+                if name == "bk-enrollment" {
+                    // This branch runs only after the existing main-pipe peer authentication.
+                    // The payload carries a bearer digest, never the bearer or any private key.
+                    let response = serde_json::from_str::<(String, String)>(&value)
+                        .ok().filter(|(request, digest)| request.len() <= 16384 && digest.len() <= 64)
+                        .map(|(request, digest)| crate::bk_remote::native_request_for_host(&request, &digest))
+                        .unwrap_or_else(|| serde_json::json!({"ok":false,"error":"Invalid enrollment request"}).to_string());
+                    allow_err!(stream.send(&Data::Config((name, Some(response)))).await);
+                    return;
+                }
                 let mut updated = true;
                 if name == "id" {
                     // An empty id would wipe the local id and unconfirm the key (cf. #15626).
@@ -1555,6 +1568,32 @@ fn user_main_ipc_server_uid() -> ResultType<u32> {
     select_server_uid_for_user_main_ipc(&server_uids, active_uid(), prefer_root)
 }
 
+#[cfg(windows)]
+pub async fn bk_enrollment_request(request: &str, session_hash: &str) -> ResultType<String> {
+    let mut connection = connect(1500, "").await?;
+    let value = serde_json::to_string(&(request, session_hash))?;
+    connection.send(&Data::Config(("bk-enrollment".into(), Some(value)))).await?;
+    if let Some(Data::Config((name, Some(value)))) = connection.next_timeout(3000).await? {
+        if name == "bk-enrollment" { return Ok(value); }
+    }
+    bail!("The native service did not answer the enrollment request")
+}
+
+#[cfg(windows)]
+pub async fn bk_profile_probe(namespace: &str, generation: u64) -> ResultType<bool> {
+    // Known product namespaces only; preserve the upstream named-pipe peer authentication.
+    if !["BK Remote", "BK Remote Public", "BK Remote Manual"].contains(&namespace) {
+        return Ok(false);
+    }
+    let path = format!(r"\\.\pipe\{}\query", namespace);
+    let stream = timeout(800, ipc_windows::connect(&path, "")).await??;
+    let mut connection = ConnectionTmpl::new(stream);
+    connection.send(&Data::Config(("bk-profile".into(), None))).await?;
+    let expected = format!("{}:{}", namespace, generation);
+    Ok(matches!(connection.next_timeout(800).await?,
+        Some(Data::Config((name, Some(value)))) if name == "bk-profile" && value == expected))
+}
+
 pub async fn connect(ms_timeout: u64, postfix: &str) -> ResultType<ConnectionTmpl<ConnClient>> {
     #[cfg(windows)]
     if is_windows_main_or_service_ipc(postfix) {
@@ -2014,8 +2053,8 @@ pub async fn get_rendezvous_server(ms_timeout: u64) -> (String, Vec<String>) {
         (a, b)
     } else {
         (
-            Config::get_rendezvous_server(),
-            Config::get_rendezvous_servers(),
+            crate::bk_profiles::rendezvous_server(),
+            crate::bk_profiles::rendezvous_servers(),
         )
     }
 }
@@ -2115,7 +2154,7 @@ pub async fn get_rendezvous_servers(ms_timeout: u64) -> Vec<String> {
     if let Ok(Some(v)) = get_config_async("rendezvous_servers", ms_timeout).await {
         return v.split(',').map(|x| x.to_owned()).collect();
     }
-    return Config::get_rendezvous_servers();
+    return crate::bk_profiles::rendezvous_servers();
 }
 
 #[inline]

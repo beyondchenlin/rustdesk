@@ -16,6 +16,47 @@ mod recovery;
 
 const PASSWORD: &str = "permanent-test-password";
 
+// Windows resolves application configuration through Known Folders, not TEMP or
+// APPDATA overrides. Initialize the existing unique test namespace before any
+// test can lazily load Config/LocalConfig, including client login-method tests.
+#[cfg(target_os = "windows")]
+#[used]
+#[link_section = ".CRT$XCU"]
+static ISOLATE_WINDOWS_TEST_CONFIGURATION: extern "C" fn() = {
+    extern "C" fn initialize() {
+        let isolated = (|| -> std::io::Result<()> {
+            initialize_config();
+            let name = hbb_common::config::APP_NAME.read().unwrap().clone();
+            let path = Config::path("");
+            if !name.starts_with("RustDeskV2Test")
+                || !path.components().any(|part| part.as_os_str().to_string_lossy().eq_ignore_ascii_case(&name))
+                || path.try_exists()?
+            {
+                return Err(std::io::Error::other("Refusing a non-fresh test configuration directory"));
+            }
+            fs::create_dir_all(&path)?;
+            let evidence = std::env::var_os("BK_REMOTE_TEST_EVIDENCE_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::env::temp_dir().join("BKRemoteNativeTests"));
+            fs::create_dir_all(&evidence)?;
+            let report = evidence.join(format!("configuration-{}-{}.json", std::process::id(), name));
+            let mut file = fs::OpenOptions::new().write(true).create_new(true).open(report)?;
+            use std::io::Write;
+            file.write_all(serde_json::to_string_pretty(&serde_json::json!({
+                "application_namespace": name,
+                "configuration_directory": path,
+                "created_fresh_before_test_entry": true,
+            }))?.as_bytes())?;
+            Ok(())
+        })();
+        if isolated.is_err() {
+            eprintln!("Windows test configuration isolation failed before test entry");
+            std::process::exit(2);
+        }
+    }
+    initialize
+};
+
 pub(crate) fn initialize_config() {
     static INITIALIZED: std::sync::Once = std::sync::Once::new();
     INITIALIZED.call_once(|| {

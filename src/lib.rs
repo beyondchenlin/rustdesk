@@ -21,6 +21,14 @@ mod rendezvous_mediator;
 pub use self::rendezvous_mediator::*;
 /// cbindgen:ignore
 pub mod common;
+mod bk_remote;
+mod bk_account_transport;
+mod bk_service_settings;
+mod bk_presence;
+#[cfg(target_os = "windows")]
+mod bk_windows_process;
+mod bk_profiles;
+mod bk_updates;
 #[cfg(not(any(target_os = "ios")))]
 pub mod ipc;
 #[cfg(not(any(

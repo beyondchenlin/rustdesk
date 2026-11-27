@@ -47,7 +47,7 @@ import java.nio.ByteBuffer
 import kotlin.math.max
 import kotlin.math.min
 
-const val DEFAULT_NOTIFY_TITLE = "RustDesk"
+const val DEFAULT_NOTIFY_TITLE = "BK Remote"
 const val DEFAULT_NOTIFY_TEXT = "Service is running"
 const val DEFAULT_NOTIFY_ID = 1
 const val NOTIFY_ID_OFFSET = 100
@@ -190,6 +190,11 @@ class MainService : Service() {
     private val wakeLock: PowerManager.WakeLock by lazy { powerManager.newWakeLock(PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "rustdesk:wakelock")}
 
     companion object {
+        // A bound/started service can remain alive without projection permission.
+        // Receiver enablement is a separate Rust `stop-service` configuration.
+        @Volatile private var _isServiceAlive = false
+        val isServiceAlive: Boolean
+            get() = _isServiceAlive
         private var _isReady = false // media permission ready status
         private var _isStart = false // screen capture start status
         private var _isAudioStart = false // audio capture start status
@@ -255,11 +260,13 @@ class MainService : Service() {
             ?: applicationContext.filesDir.absolutePath
         FFI.startServer(configPath, homePath, "")
         FFI.setInputServiceOpen(InputService.isOpen)
+        _isServiceAlive = true
 
         createForegroundNotification()
     }
 
     override fun onDestroy() {
+        _isServiceAlive = false
         checkMediaPermission()
         stopService(Intent(this, FloatingWindowService::class.java))
         super.onDestroy()
@@ -349,7 +356,13 @@ class MainService : Service() {
         super.onStartCommand(intent, flags, startId)
         if (intent?.action == ACT_INIT_MEDIA_PROJECTION_AND_SERVICE) {
             if (intent.getBooleanExtra(EXT_INIT_FROM_BOOT, false)) {
-                FFI.startService()
+                val prefs = getSharedPreferences(KEY_SHARED_PREFERENCES, Context.MODE_PRIVATE)
+                if (!prefs.getBoolean(KEY_USER_STOPPED, false)) {
+                    FFI.startService()
+                }
+                // Boot can restore the listener, never a projection authorization.
+                checkMediaPermission()
+                return START_NOT_STICKY
             }
             Log.d(logTag, "service starting: ${startId}:${Thread.currentThread()}")
             val mediaProjectionManager =
@@ -447,6 +460,12 @@ class MainService : Service() {
         checkMediaPermission()
     }
 
+    private fun notifyMediaProjectionRequestCanceled() {
+        Handler(Looper.getMainLooper()).post {
+            MainActivity.flutterMethodChannel?.invokeMethod("on_media_projection_canceled", null)
+        }
+    }
+
     @Synchronized
     private fun replaceMediaProjection(
         mediaProjectionManager: MediaProjectionManager,
@@ -466,10 +485,17 @@ class MainService : Service() {
                 _isReady = false
                 checkMediaPermission()
             }
+            if (!restartCapture) notifyMediaProjectionRequestCanceled()
             return
         }
-        val projection =
+        val projection = try {
             mediaProjectionManager.getMediaProjection(Activity.RESULT_OK, resultIntent)
+        } catch (error: RuntimeException) {
+            // A revoked or consumed Android projection result must not crash
+            // the receiver or leave the UI waiting for an authorization event.
+            Log.e(logTag, "Could not acquire screen projection", error)
+            null
+        }
         if (projection == null) {
             if (!hadProjection) {
                 cancelMediaProjectionRecovery()
@@ -477,6 +503,18 @@ class MainService : Service() {
                 setMediaProjectionForegroundService(false)
                 checkMediaPermission()
             }
+            // Automatic capture recovery has its own cancellation path and
+            // must never turn a projection failure into a whole-service stop.
+            if (!restartCapture) notifyMediaProjectionRequestCanceled()
+            return
+        }
+        val prefs = getSharedPreferences(KEY_SHARED_PREFERENCES, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_USER_STOPPED, false) &&
+            !prefs.edit().putBoolean(KEY_USER_STOPPED, false).commit()) {
+            projection.stop()
+            setMediaProjectionForegroundService(hadProjection)
+            Log.e(logTag, "Could not persist the explicit service restart")
+            MainActivity.flutterMethodChannel?.invokeMethod("on_media_projection_canceled", null)
             return
         }
         if (wasCapturing) {
@@ -670,6 +708,17 @@ class MainService : Service() {
         }
     }
 
+    @Synchronized
+    fun stopScreenCapture() {
+        stopCapture()
+        virtualDisplay?.release()
+        virtualDisplay = null
+        releaseMediaProjection()
+        _isReady = false
+        setMediaProjectionForegroundService(false)
+        checkMediaPermission()
+    }
+
     fun destroy() {
         Log.d(logTag, "destroy service")
         _isReady = false
@@ -693,6 +742,10 @@ class MainService : Service() {
 
     fun checkMediaPermission(): Boolean {
         Handler(Looper.getMainLooper()).post {
+            MainActivity.flutterMethodChannel?.invokeMethod(
+                "on_state_changed",
+                mapOf("name" to "service", "value" to isServiceAlive.toString())
+            )
             MainActivity.flutterMethodChannel?.invokeMethod(
                 "on_state_changed",
                 mapOf("name" to "media", "value" to isReady.toString())
@@ -818,12 +871,12 @@ class MainService : Service() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationChannel = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channelId = "RustDesk"
-            val channelName = "RustDesk Service"
+            val channelName = "BK Remote Service"
             val channel = NotificationChannel(
                 channelId,
                 channelName, NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "RustDesk Service Channel"
+                description = "BK Remote Service Channel"
             }
             channel.lightColor = Color.BLUE
             channel.lockscreenVisibility = Notification.VISIBILITY_PRIVATE

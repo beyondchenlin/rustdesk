@@ -132,7 +132,7 @@ async fn start_hbbs_sync_async() {
                 if need_upload {
                     v["version"] = json!(crate::VERSION);
                     v["id"] = json!(id);
-                    v["uuid"] = json!(crate::encode64(hbb_common::get_uuid()));
+                    v["uuid"] = json!(crate::encode64(crate::bk_profiles::uuid()));
                     let ab_name = Config::get_option(keys::OPTION_PRESET_ADDRESS_BOOK_NAME);
                     if !ab_name.is_empty() {
                         v[keys::OPTION_PRESET_ADDRESS_BOOK_NAME] = json!(ab_name);
@@ -231,7 +231,7 @@ async fn start_hbbs_sync_async() {
                 last_sent = Some(Instant::now());
                 let mut v = Value::default();
                 v["id"] = json!(id);
-                v["uuid"] = json!(crate::encode64(hbb_common::get_uuid()));
+                v["uuid"] = json!(crate::encode64(crate::bk_profiles::uuid()));
                 v["ver"] = json!(hbb_common::get_version_number(crate::VERSION));
                 if !conns.is_empty() {
                     v["conns"] = json!(conns);

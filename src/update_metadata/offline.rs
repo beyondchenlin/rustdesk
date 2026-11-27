@@ -14,7 +14,7 @@ pub(crate) struct OfflineUpdateMetadataRequirements<'a> {
 
 pub(super) struct OfflineVerificationOptions<'a> {
     pub(super) requirements: OfflineUpdateMetadataRequirements<'a>,
-    pub(super) trusted_keys: &'a [TrustedUpdateKey],
+    pub(super) trusted_keys: &'a [TrustedUpdateKey<'a>],
 }
 
 #[derive(Deserialize)]
@@ -44,6 +44,8 @@ pub(super) fn verify_offline_update_metadata_with_options(
                 artifact: options.requirements.artifact,
             },
             expected_package_id: options.requirements.expected_package_id,
+            expected_app: super::UPDATE_APP,
+            signature_context: super::UPDATE_METADATA_SIGNATURE_CONTEXT,
             artifact_url_policy: ArtifactUrlPolicy::SignedHttps,
             trusted_keys: options.trusted_keys,
         },

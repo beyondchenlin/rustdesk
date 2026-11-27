@@ -28,6 +28,13 @@ const kUseBothPasswords = "use-both-passwords";
 class ServerModel with ChangeNotifier {
   bool _isStart = false; // Android MainService status
   bool _mediaOk = false;
+  bool _projectionOnlyRequest = false;
+  // Only this model's explicit first-start request owns cancellation cleanup.
+  // A service bind/rebind event does not establish ownership of a consent result.
+  bool _serviceStartPending = false;
+  Completer<void>? _serviceStartInFlight;
+  Completer<void>? _serviceStopInFlight;
+  bool _serviceStopUserInitiated = false;
   bool _inputOk = false;
   bool _audioOk = false;
   bool _fileOk = false;
@@ -377,6 +384,7 @@ class ServerModel with ChangeNotifier {
 
   /// Toggle the screen sharing service.
   toggleService() async {
+    if (_serviceStopInFlight != null) return;
     if (_isStart) {
       final res = await parent.target?.dialogManager
           .show<bool>((setState, close, context) {
@@ -388,17 +396,25 @@ class ServerModel with ChangeNotifier {
             const SizedBox(width: 10),
             Text(translate("Warning")),
           ]),
-          content: Text(translate("android_stop_service_tip")),
+          content: Text(translate("remote_service_stop_warning")),
           actions: [
-            TextButton(onPressed: close, child: Text(translate("Cancel"))),
+            TextButton(
+                autofocus: true,
+                onPressed: close,
+                child: Text(translate("Cancel"))),
             TextButton(onPressed: submit, child: Text(translate("OK"))),
           ],
-          onSubmit: submit,
+          onSubmit: close,
           onCancel: close,
         );
       });
       if (res == true) {
-        stopService();
+        try {
+          await stopService(userInitiated: true);
+        } catch (error) {
+          debugPrint("Failed to persist the user stop decision: $error");
+          showToast(error.toString());
+        }
       }
     } else {
       if (isAndroid) {
@@ -438,29 +454,157 @@ class ServerModel with ChangeNotifier {
     }
   }
 
+  /// Change projection permission without stopping the receiver or file transfers.
+  Future<void> toggleScreenCapture() async {
+    if (_serviceStopInFlight != null ||
+        _projectionOnlyRequest ||
+        _serviceStartPending) return;
+    if (!_isStart) {
+      await toggleService();
+      return;
+    }
+    _projectionOnlyRequest = !_mediaOk;
+    try {
+      await parent.target?.invokeMethod(
+          _mediaOk ? "stop_screen_capture" : "init_service");
+    } catch (error) {
+      _projectionOnlyRequest = false;
+      debugPrint("Could not change screen capture: $error");
+      showToast(error.toString());
+    }
+  }
+
+  Future<void> onMediaProjectionCanceled() async {
+    if (_projectionOnlyRequest || !_serviceStartPending) {
+      _projectionOnlyRequest = false;
+      // The unnumbered native result can belong to an old UI instance.
+      // Only actual media state events update permission; keep this receiver.
+      notifyListeners();
+      return;
+    }
+    _serviceStartPending = false;
+    // A late completion of mainStartService must not undo cancellation cleanup.
+    await _serviceStartInFlight?.future;
+    await stopService();
+  }
+
   /// Start the screen sharing service.
   Future<void> startService() async {
+    if (_serviceStopInFlight != null ||
+        _serviceStartPending ||
+        _serviceStartInFlight != null) return;
+    final ownsConsent = !_isStart && !_mediaOk;
+    _serviceStartPending = ownsConsent;
+    final completion = Completer<void>();
+    _serviceStartInFlight = completion;
     _isStart = true;
     notifyListeners();
-    parent.target?.ffiModel.updateEventListener(parent.target!.sessionId, "");
-    await parent.target?.invokeMethod("init_service");
-    // ugly is here, because for desktop, below is useless
-    await bind.mainStartService();
-    updateClientState();
-    if (isAndroid) {
-      androidUpdatekeepScreenOn();
+    try {
+      parent.target?.ffiModel.updateEventListener(parent.target!.sessionId, "");
+      final consentRequested =
+          await parent.target?.invokeMethod("init_service");
+      if (ownsConsent && !_serviceStartPending && !_mediaOk) return;
+      if (consentRequested != true) _serviceStartPending = false;
+      // ugly is here, because for desktop, below is useless
+      await bind.mainStartService();
+      await parent.target?.invokeMethod("check_service");
+      updateClientState();
+      if (isAndroid) {
+        androidUpdatekeepScreenOn();
+      }
+    } catch (_) {
+      _serviceStartPending = false;
+      rethrow;
+    } finally {
+      _serviceStartInFlight = null;
+      completion.complete();
     }
   }
 
   /// Stop the screen sharing service.
-  Future<void> stopService() async {
+  Future<void> stopService({bool userInitiated = false}) {
+    final stopping = _serviceStopInFlight;
+    if (stopping != null) {
+      // An older confirmation may finish during automatic cancellation cleanup.
+      // Coalescing must retain that explicit stop decision.
+      _serviceStopUserInitiated = _serviceStopUserInitiated || userInitiated;
+      return stopping.future;
+    }
+    final completion = Completer<void>();
+    _serviceStopInFlight = completion;
+    _serviceStopUserInitiated = userInitiated;
+    _finishStopService().then<void>((_) {
+      completion.complete();
+    }, onError: (Object error, StackTrace stack) {
+      completion.completeError(error, stack);
+    });
+    return completion.future;
+  }
+
+  Future<void> _finishStopService() async {
+    final wasStarted = _isStart;
     _isStart = false;
-    closeAll();
-    await parent.target?.invokeMethod("stop_service");
-    await bind.mainStopService();
-    notifyListeners();
-    // for androidUpdatekeepScreenOn only
-    WakelockManager.disable(_wakelockKey);
+    var manualStopPersisted = false;
+    var nativeStopCompleted = false;
+    Object? persistenceError;
+    StackTrace? persistenceStack;
+    Future<void> persistStop() async {
+      final userInitiated = _serviceStopUserInitiated;
+      final target = parent.target;
+      if (userInitiated && target == null) {
+        throw StateError("Cannot persist the manual stop decision.");
+      }
+      await target?.invokeMethod("stop_service", userInitiated);
+      nativeStopCompleted = true;
+      manualStopPersisted = userInitiated;
+    }
+
+    try {
+      try {
+        await persistStop();
+        if (_serviceStopUserInitiated && !manualStopPersisted) {
+          await persistStop();
+        }
+      } catch (error, stack) {
+        if (!nativeStopCompleted) {
+          // The first persistence failed before any native stop succeeded.
+          _isStart = wasStarted;
+          notifyListeners();
+          rethrow;
+        }
+        // Automatic cleanup already stopped the native service. Complete that
+        // cleanup, then report the failed later manual persistence honestly.
+        _isStart = false;
+        persistenceError = error;
+        persistenceStack = stack;
+      }
+      _serviceStartPending = false;
+      _projectionOnlyRequest = false;
+      closeAll();
+      // Only stopping waits for an older enable; new starts never wait/restart.
+      await _serviceStartInFlight?.future;
+      await bind.mainStopService();
+      await parent.target?.invokeMethod("check_service");
+      if (persistenceError == null &&
+          _serviceStopUserInitiated &&
+          !manualStopPersisted) {
+        try {
+          await persistStop();
+        } catch (error, stack) {
+          persistenceError = error;
+          persistenceStack = stack;
+        }
+      }
+      notifyListeners();
+      // for androidUpdatekeepScreenOn only
+      WakelockManager.disable(_wakelockKey);
+      if (persistenceError != null) {
+        Error.throwWithStackTrace(persistenceError, persistenceStack!);
+      }
+    } finally {
+      _serviceStopInFlight = null;
+      _serviceStopUserInitiated = false;
+    }
   }
 
   fetchID() async {
@@ -474,10 +618,20 @@ class ServerModel with ChangeNotifier {
   changeStatue(String name, bool value) {
     debugPrint("changeStatue value $value");
     switch (name) {
+      case "service":
+        _isStart = value &&
+            !option2bool(kOptionStopService,
+                bind.mainGetOptionSync(key: kOptionStopService));
+        if (!value) {
+          _mediaOk = false;
+          _projectionOnlyRequest = false;
+        }
+        break;
       case "media":
         _mediaOk = value;
-        if (value && !_isStart) {
-          startService();
+        if (value) {
+          _projectionOnlyRequest = false;
+          _serviceStartPending = false;
         }
         break;
       case "input":

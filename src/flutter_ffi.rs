@@ -41,14 +41,15 @@ lazy_static::lazy_static! {
 }
 
 fn initialize(app_dir: &str, custom_client_config: &str) {
+    crate::bk_remote::initialize_brand();
     // On mobile `global_init` below comes after the custom client's signature is verified.
     crate::common::init_sodium();
     flutter::async_tasks::start_flutter_async_runner();
     // `APP_DIR` is set in `main_get_data_dir_ios()` on iOS.
-    #[cfg(not(target_os = "ios"))]
-    {
-        *config::APP_DIR.write().unwrap() = app_dir.to_owned();
-    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    { *config::APP_DIR.write().unwrap() = app_dir.to_owned(); }
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    crate::bk_profiles::initialize_mobile(app_dir);
     // core_main's load_custom_client does not work for flutter since it is only applied to its load_library in main.c
     if custom_client_config.is_empty() {
         crate::load_custom_client();
@@ -2753,7 +2754,39 @@ pub fn main_get_printer_names() -> SyncReturn<String> {
     return SyncReturn("".to_owned());
 }
 
+const BK_PRESENCE_UNKNOWN: &str = r#"{"context":"","queried_at_ms":0,"confirmed_at_ms":null,"states":{}}"#;
+
+fn bk_native_presence_query(request: &str) -> String {
+    if request.len() > 24 * 1024 {
+        return BK_PRESENCE_UNKNOWN.to_owned();
+    }
+    // The bounded helper owns the sole background permit until this runtime
+    // has finished. Its caller times out even if fixed upstream DNS blocks.
+    crate::bk_presence::at_async_bridge(request, |request| {
+        let Ok(runtime) = hbb_common::tokio::runtime::Builder::new_current_thread()
+            .enable_all().build() else {
+                return BK_PRESENCE_UNKNOWN.to_owned();
+            };
+        runtime.block_on(crate::bk_presence::query_json(&request))
+    })
+}
+
 pub fn main_get_common(key: String) -> String {
+    if key == "bk-native-presence-context" {
+        return crate::bk_presence::context_json();
+    }
+    if let Some(request) = key.strip_prefix("bk-native-presence:") {
+        return bk_native_presence_query(request);
+    }
+    if let Some(request) = key.strip_prefix("bk-remote-account-http:") {
+        return crate::bk_account_transport::request(request);
+    }
+    if key == "bk-update-channel" {
+        return crate::bk_updates::status();
+    }
+    if let Some(request) = key.strip_prefix("bk-remote-native:") {
+        return crate::bk_remote::native_request(request);
+    }
     if key == "is-printer-installed" {
         #[cfg(target_os = "windows")]
         {
@@ -2829,6 +2862,12 @@ pub fn main_get_common(key: String) -> String {
 }
 
 pub fn main_get_common_sync(key: String) -> SyncReturn<String> {
+    if key.starts_with("bk-native-presence:") {
+        return SyncReturn(BK_PRESENCE_UNKNOWN.to_owned());
+    }
+    if key.starts_with("bk-remote-account-http:") {
+        return SyncReturn(serde_json::json!({"ok": false, "error": "Network requests require the asynchronous bridge"}).to_string());
+    }
     if let Some(args) = key.strip_prefix("resolve-api-server:") {
         let response = match serde_json::from_str::<(String, String)>(args) {
             Ok((api, custom)) => serde_json::json!({"url": crate::get_api_server(api, custom)}),
@@ -3084,17 +3123,20 @@ pub mod server_side {
         custom_client_config: JString,
     ) {
         log::debug!("startServer from jvm");
+        crate::bk_remote::initialize_brand();
         // Started at boot, the service runs without the Flutter side and its `initialize`.
         crate::common::init_sodium();
         let mut env = env;
         if let Ok(app_dir) = env.get_string(&app_dir) {
-            *config::APP_DIR.write().unwrap() = app_dir.into();
+            let base: String = app_dir.into();
+            crate::bk_profiles::initialize_mobile(&base);
         }
         if let Ok(home_dir) = env.get_string(&home_dir) {
             *config::APP_HOME_DIR.write().unwrap() = home_dir.into();
         }
         #[cfg(not(debug_assertions))]
         crate::platform::android_log::initialize();
+        crate::load_custom_client();
         if let Ok(custom_client_config) = env.get_string(&custom_client_config) {
             if !custom_client_config.is_empty() {
                 let custom_client_config: String = custom_client_config.into();

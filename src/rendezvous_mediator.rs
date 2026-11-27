@@ -351,7 +351,7 @@ impl RendezvousMediator {
                 && !crate::platform::installing_service()
             {
                 let mut futs = Vec::new();
-                let servers = Config::get_rendezvous_servers();
+                let servers = crate::bk_profiles::rendezvous_servers();
                 SHOULD_EXIT.store(false, Ordering::SeqCst);
                 MANUAL_RESTARTED.store(false, Ordering::SeqCst);
                 for host in servers.clone() {
@@ -1312,7 +1312,7 @@ impl RendezvousMediator {
         }
         let mut msg_out = Message::new();
         let pk = Config::get_key_pair().1;
-        let uuid = hbb_common::get_uuid();
+        let uuid = crate::bk_profiles::uuid();
         let id = Config::get_id();
         msg_out.set_register_pk(RegisterPk {
             id,

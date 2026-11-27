@@ -1,0 +1,13 @@
+// Scoped to this wrapper's immutable package source; no other project is changed.
+def packageSource = System.getenv('BK_ANDROID_PACKAGE_SOURCE')
+if (packageSource != null) {
+    def expectedRoot = new File(packageSource, 'flutter/android').canonicalFile
+    gradle.beforeProject { project ->
+        if (project.rootDir.canonicalFile == expectedRoot) {
+            project.plugins.withId('com.android.application') {
+                project.extensions.getByName('android').ndkVersion = '28.2.13676358'
+                project.logger.lifecycle('BK_ANDROID_PACKAGE_NDK=28.2.13676358')
+            }
+        }
+    }
+}

@@ -238,6 +238,11 @@ class PlatformFFI {
         appDir: _dir,
         customClientConfig: '',
       );
+      // A new mobile process must load its native profile before committing a pending switch.
+      if (isAndroid || isIOS) {
+        await _ffiBind.mainGetCommon(
+            key: 'bk-remote-native:{"op":"profile_ready"}');
+      }
     } catch (e) {
       debugPrintStack(label: 'initialize failed: $e');
     }

@@ -11,6 +11,7 @@ import '../common.dart';
 import '../utils/http_service.dart' as http;
 import 'model.dart';
 import 'platform_model.dart';
+import 'bk_remote_model.dart';
 
 bool refreshingUser = false;
 
@@ -65,7 +66,7 @@ class UserModel {
       'id': await bind.mainGetMyId(),
       'uuid': await bind.mainGetUuid()
     };
-    if (refreshingUser) return;
+    if (!await _sessionIsCurrent(token, url) || refreshingUser) return;
     try {
       refreshingUser = true;
       final http.Response response;
@@ -77,13 +78,15 @@ class UserModel {
             },
             body: json.encode(body));
       } catch (e) {
-        networkError.value = e.toString();
+        if (await _sessionIsCurrent(token, url)) {
+          networkError.value = e.toString();
+        }
         rethrow;
       }
-      refreshingUser = false;
+      if (!await _sessionIsCurrent(token, url)) return;
       final status = response.statusCode;
       if (status == 401 || status == 400) {
-        reset(resetOther: status == 401);
+        await invalidateSession(token, url);
         return;
       }
       final data = json.decode(decode_http_response(response));
@@ -98,7 +101,9 @@ class UserModel {
 
       final user = UserPayload.fromJson(data);
       _parseAndUpdateUser(user);
+      bkRemotePresence.start();
     } catch (e) {
+      if (!await _sessionIsCurrent(token, url)) return;
       debugPrint('Failed to refreshCurrentUser: $e');
       // Surface failures in the address book / group tabs, which offer a
       // retry. Anything not flagged above -- transport errors, non-JSON or
@@ -109,7 +114,7 @@ class UserModel {
       }
     } finally {
       refreshingUser = false;
-      await updateOtherModels();
+      if (await _sessionIsCurrent(token, url)) await updateOtherModels();
     }
   }
 
@@ -135,7 +140,46 @@ class UserModel {
     }
   }
 
+  Future<bool> _sessionIsCurrent(String token, String origin) async {
+    if (token.isEmpty || bind.mainGetLocalOption(key: 'access_token') != token) {
+      return false;
+    }
+    final actual = await bind.mainGetApiServer();
+    return actual.replaceFirst(RegExp(r'/+$'), '') ==
+            origin.replaceFirst(RegExp(r'/+$'), '') &&
+        bind.mainGetLocalOption(key: 'access_token') == token;
+  }
+
+  Future<void> invalidateSession(String token, String origin) async {
+    if (!await _sessionIsCurrent(token, origin)) return;
+    final result = await bkRemoteNative({
+      'op': 'clear_session',
+      'token': token,
+      'audience': origin.replaceFirst(RegExp(r'/+$'), ''),
+    });
+    // Native invalidation compares the old credentials under the same lock used
+    // for login writes. A later login must also keep its newly populated UI.
+    if (result['cleared'] != true ||
+        bind.mainGetLocalOption(key: 'access_token').isNotEmpty) {
+      return;
+    }
+    bkRemotePresence.stop();
+    userName.value = '';
+    displayName.value = '';
+    avatar.value = '';
+    isAdmin.value = false;
+    networkError.value = '';
+    networkErrorFromServer.value = false;
+    // These calls only clear the in-memory view; native invalidation already
+    // removed this session's caches before releasing the login-write lock.
+    await Future.wait([
+      gFFI.abModel.reset(clearCache: false),
+      gFFI.groupModel.reset(clearCache: false),
+    ]);
+  }
+
   Future<void> reset({bool resetOther = false}) async {
+    bkRemotePresence.stop();
     await bind.mainSetLocalOption(key: 'access_token', value: '');
     await bind.mainSetLocalOption(key: 'user_info', value: '');
     if (resetOther) {
@@ -145,6 +189,7 @@ class UserModel {
     userName.value = '';
     displayName.value = '';
     avatar.value = '';
+    isAdmin.value = false;
   }
 
   _parseAndUpdateUser(UserPayload user) {

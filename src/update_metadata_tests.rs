@@ -53,7 +53,7 @@ fn sign_fixture(metadata: Value, signature_key_id: &str) -> Fixture {
 fn valid_fixture() -> Fixture {
     sign_fixture(metadata(), KEY_ID)
 }
-fn key(public_key: [u8; 32]) -> TrustedUpdateKey {
+fn key(public_key: [u8; 32]) -> TrustedUpdateKey<'static> {
     TrustedUpdateKey {
         key_id: KEY_ID,
         algorithm: "ed25519",
@@ -85,6 +85,8 @@ fn verify_with_query(
         VerificationOptions {
             requirements: requirements(*query),
             expected_package_id: PUBLIC_UPDATE_PACKAGE_ID,
+            expected_app: UPDATE_APP,
+            signature_context: UPDATE_METADATA_SIGNATURE_CONTEXT,
             artifact_url_policy: ArtifactUrlPolicy::ExactPrefix(
                 "https://github.com/rustdesk/rustdesk/releases/download/v1.4.6/",
             ),
@@ -193,6 +195,8 @@ fn verifies_metadata_generated_by_python_release_script_fixture() {
         VerificationOptions {
             requirements: requirements(query()),
             expected_package_id: PUBLIC_UPDATE_PACKAGE_ID,
+            expected_app: UPDATE_APP,
+            signature_context: UPDATE_METADATA_SIGNATURE_CONTEXT,
             artifact_url_policy: ArtifactUrlPolicy::ExactPrefix(
                 "https://github.com/rustdesk/rustdesk/releases/download/v1.4.6/",
             ),

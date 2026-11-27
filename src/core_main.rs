@@ -43,6 +43,16 @@ fn finish_macos_update(result: hbb_common::ResultType<()>) -> Option<CoreMainAct
 /// If it returns [`Some`], the action determines whether to start the UI or report failure.
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn core_main() -> Option<CoreMainAction> {
+    #[cfg(target_os = "windows")]
+    {
+        let args: Vec<String> = std::env::args().collect();
+        if args.iter().skip(1).any(|arg| arg == "--bk-stop-private-host") {
+            let succeeded = args.len() == 2
+                && crate::platform::windows::stop_installed_private_brokers().is_ok();
+            std::process::exit(if succeeded { 0 } else { 1 });
+        }
+    }
+    if crate::bk_profiles::dispatch_control_args() { return None; }
     // Before global_init: with drm its is_x11() can read Config (allow-drm-capture), and Config
     // loads from a path named after the custom client's app name. global_init's first two steps
     // run first, for the custom client: its signature check uses libsodium, and the probe child
@@ -551,7 +561,7 @@ pub fn core_main() -> Option<CoreMainAction> {
                 if pos < max {
                     let token = args[pos + 1].to_owned();
                     let id = crate::ipc::get_id();
-                    let uuid = crate::encode64(hbb_common::get_uuid());
+                    let uuid = crate::encode64(crate::bk_profiles::uuid());
                     let get_value = |c: &str| {
                         let pos = args.iter().position(|x| x == c).unwrap_or(max);
                         if pos < max {

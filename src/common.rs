@@ -130,6 +130,7 @@ pub fn init_sodium() {
 
 pub fn global_init() -> bool {
     init_sodium();
+    crate::bk_remote::initialize_brand();
     #[cfg(all(target_os = "linux", feature = "drm"))]
     crate::platform::linux::dispatch_wayland_display_probe();
     #[cfg(target_os = "linux")]
@@ -747,7 +748,7 @@ pub fn test_nat_type() {
 async fn test_nat_type_() -> ResultType<bool> {
     log::info!("Testing nat ...");
     let start = std::time::Instant::now();
-    let server1 = Config::get_rendezvous_server();
+    let server1 = crate::bk_profiles::rendezvous_server();
     let server2 = crate::increase_port(&server1, -1);
     let mut msg_out = RendezvousMessage::new();
     let serial = Config::get_serial();
@@ -804,7 +805,7 @@ pub async fn get_rendezvous_server(ms_timeout: u64) -> (String, Vec<String>, boo
     let (mut a, mut b) = get_rendezvous_server_(ms_timeout).await;
     #[cfg(windows)]
     if let Ok(lic) = crate::platform::get_license_from_exe_name() {
-        if !lic.host.is_empty() {
+        if crate::bk_profiles::current() == crate::bk_profiles::Profile::Manual && !lic.host.is_empty() {
             a = lic.host;
         }
     }
@@ -826,8 +827,8 @@ pub async fn get_rendezvous_server(ms_timeout: u64) -> (String, Vec<String>, boo
 #[cfg(any(target_os = "android", target_os = "ios"))]
 fn get_rendezvous_server_(_ms_timeout: u64) -> (String, Vec<String>) {
     (
-        Config::get_rendezvous_server(),
-        Config::get_rendezvous_servers(),
+        crate::bk_profiles::rendezvous_server(),
+        crate::bk_profiles::rendezvous_servers(),
     )
 }
 
@@ -852,7 +853,7 @@ pub async fn get_nat_type(ms_timeout: u64) -> i32 {
 // used for client to test which server is faster in case stop-servic=Y
 #[tokio::main(flavor = "current_thread")]
 async fn test_rendezvous_server_() {
-    let servers = Config::get_rendezvous_servers();
+    let servers = crate::bk_profiles::rendezvous_servers();
     if servers.len() <= 1 {
         return;
     }
@@ -1067,7 +1068,7 @@ pub fn is_modifier(evt: &KeyEvent) -> bool {
 }
 
 pub fn check_software_update() {
-    if is_custom_client() {
+    if is_custom_client() && get_app_name() != crate::bk_remote::BRAND {
         return;
     }
     let opt = LocalConfig::get_option(keys::OPTION_ENABLE_CHECK_UPDATE);
@@ -1186,6 +1187,21 @@ fn process_software_update_check_response(bytes: Bytes) -> ResultType<()> {
 // Because the url is always `https://api.rustdesk.com/version/latest`.
 #[tokio::main(flavor = "current_thread")]
 pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
+    let result = crate::bk_updates::check().await;
+    let response_url = result.as_ref().cloned().unwrap_or_default();
+    *SOFTWARE_UPDATE_URL.lock().unwrap() = response_url.clone();
+    #[cfg(feature = "flutter")]
+    {
+        let data = serde_json::json!({"name":"check_software_update_finish","url":response_url});
+        let _ = crate::flutter::push_global_event(crate::flutter::APP_TYPE_MAIN, data.to_string());
+    }
+    result.map(|_| ())
+}
+
+// Retain the upstream implementation for upstream maintenance and compatibility.
+#[allow(dead_code)]
+#[tokio::main(flavor = "current_thread")]
+pub async fn do_check_upstream_software_update() -> hbb_common::ResultType<()> {
     let (request, url) =
         hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_CLIENT.to_string());
     let proxy_conf = Config::get_socks();
@@ -1233,7 +1249,7 @@ pub async fn do_check_software_update() -> hbb_common::ResultType<()> {
 
 #[inline]
 pub fn get_app_name() -> String {
-    hbb_common::config::APP_NAME.read().unwrap().clone()
+    crate::bk_remote::BRAND.to_owned()
 }
 
 #[inline]
@@ -1243,6 +1259,9 @@ pub fn is_rustdesk() -> bool {
 
 #[inline]
 pub fn get_uri_prefix() -> String {
+    if get_app_name() == crate::bk_remote::BRAND {
+        return "bkremote://".to_owned();
+    }
     format!("{}://", get_app_name().to_lowercase())
 }
 
@@ -1262,7 +1281,7 @@ pub fn is_setup(name: &str) -> bool {
 pub fn get_custom_rendezvous_server(custom: String) -> String {
     #[cfg(windows)]
     if let Ok(lic) = crate::platform::windows::get_license_from_exe_name() {
-        if !lic.host.is_empty() {
+        if crate::bk_profiles::current() == crate::bk_profiles::Profile::Manual && !lic.host.is_empty() {
             return lic.host.clone();
         }
     }
@@ -1277,6 +1296,11 @@ pub fn get_custom_rendezvous_server(custom: String) -> String {
 
 #[inline]
 pub fn get_api_server(api: String, custom: String) -> String {
+    if !crate::bk_profiles::is_current()
+        || (crate::bk_profiles::current() != crate::bk_profiles::Profile::Official
+            && api.trim().is_empty() && custom.trim().is_empty())
+        || (crate::bk_profiles::current() == crate::bk_profiles::Profile::Bk && api.trim().is_empty())
+    { return String::new(); }
     if Config::no_register_device() {
         return "".to_owned();
     }
@@ -1296,7 +1320,7 @@ pub fn get_api_server(api: String, custom: String) -> String {
 fn get_api_server_(api: String, custom: String) -> String {
     #[cfg(windows)]
     if let Ok(lic) = crate::platform::windows::get_license_from_exe_name() {
-        if !lic.api.is_empty() {
+        if crate::bk_profiles::current() == crate::bk_profiles::Profile::Manual && !lic.api.is_empty() {
             return lic.api.clone();
         }
     }
@@ -1368,7 +1392,7 @@ pub fn get_local_option(key: &str) -> String {
         || key == keys::OPTION_ENABLE_WEBRTC
     {
         if v.is_empty() {
-            if !is_public(&Config::get_rendezvous_server()) {
+            if !is_public(&crate::bk_profiles::rendezvous_server()) {
                 return "N".to_owned();
             }
         }
@@ -1462,7 +1486,7 @@ fn tcp_proxy_log_target(url: &str) -> String {
 
 #[inline]
 fn get_tcp_proxy_addr() -> String {
-    check_port(Config::get_rendezvous_server(), RENDEZVOUS_PORT)
+    check_port(crate::bk_profiles::rendezvous_server(), RENDEZVOUS_PORT)
 }
 
 /// Send an HTTP request via the rendezvous server's TCP proxy using protobuf.
@@ -2516,6 +2540,13 @@ pub fn rustdesk_interval(i: Interval) -> ThrottledInterval {
 }
 
 pub fn load_custom_client() {
+    crate::bk_remote::initialize_brand();
+    if crate::bk_profiles::current() == crate::bk_profiles::Profile::Official { return; }
+    if crate::bk_profiles::current() == crate::bk_profiles::Profile::Bk {
+        if let Some(config) = option_env!("BK_REMOTE_CUSTOM_CONFIG") {
+            read_custom_client(config.trim());
+        }
+    }
     #[cfg(debug_assertions)]
     if let Ok(data) = std::fs::read_to_string("./custom.txt") {
         read_custom_client(data.trim());
@@ -2614,16 +2645,12 @@ pub fn get_dst_align_rgba() -> usize {
 }
 
 pub fn read_custom_client(config: &str) {
+    if crate::bk_profiles::current() == crate::bk_profiles::Profile::Official { return; }
     let Ok(data) = decode64(config) else {
         log::error!("Failed to decode custom client config");
         return;
     };
-    const KEY: &str = "5Qbwsde3unUcJBtrx9ZkvUmwFNoExHzpryHuPUdqlWM=";
-    let Some(pk) = get_rs_pk(KEY) else {
-        log::error!("Failed to parse public key of custom client");
-        return;
-    };
-    let Ok(data) = sign::verify(&data, &pk) else {
+    let Ok(data) = crate::bk_remote::verify_custom_config(&data) else {
         log::error!("Failed to dec custom client config");
         return;
     };
@@ -2634,11 +2661,8 @@ pub fn read_custom_client(config: &str) {
         return;
     };
 
-    if let Some(app_name) = data.remove("app-name") {
-        if let Some(app_name) = app_name.as_str() {
-            *config::APP_NAME.write().unwrap() = app_name.to_owned();
-        }
-    }
+    // The product namespace is fixed; signed server settings cannot rename the app.
+    data.remove("app-name");
 
     let mut map_display_settings = HashMap::new();
     for s in keys::KEYS_DISPLAY_SETTINGS {
@@ -2698,7 +2722,7 @@ pub fn is_empty_uni_link(arg: &str) -> bool {
 pub fn get_hwid() -> Bytes {
     use hbb_common::sha2::{Digest, Sha256};
 
-    let uuid = hbb_common::get_uuid();
+    let uuid = crate::bk_profiles::uuid();
     let mut hasher = Sha256::new();
     hasher.update(&uuid);
     Bytes::from(hasher.finalize().to_vec())

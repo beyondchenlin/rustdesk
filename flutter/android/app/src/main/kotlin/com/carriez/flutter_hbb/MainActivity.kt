@@ -81,7 +81,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        if (MainService.isReady) {
+        if (MainService.isServiceAlive) {
             Intent(activity, MainService::class.java).also {
                 bindService(it, serviceConnection, Context.BIND_AUTO_CREATE)
             }
@@ -277,6 +277,7 @@ class MainActivity : FlutterActivity() {
             Log.d(logTag, "onServiceConnected")
             val binder = service as MainService.LocalBinder
             mainService = binder.getService()
+            mainService?.checkMediaPermission()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -308,14 +309,57 @@ class MainActivity : FlutterActivity() {
                         result.success(false)
                     }
                 }
+                "stop_screen_capture" -> {
+                    mainService?.stopScreenCapture()
+                    result.success(!MainService.isReady)
+                }
                 "stop_service" -> {
-                    Log.d(logTag, "Stop service")
+                    val userInitiatedStop = call.arguments as? Boolean ?: false
+                    if (userInitiatedStop) {
+                        val persisted = getSharedPreferences(KEY_SHARED_PREFERENCES, Context.MODE_PRIVATE)
+                            .edit()
+                            .putBoolean(KEY_USER_STOPPED, true)
+                            .commit()
+                        Log.d(logTag, "User stop decision persisted: $persisted")
+                        if (!persisted) {
+                            result.error(
+                                "USER_STOP_PERSIST_FAILED",
+                                "Could not save the stop decision; the service remains running.",
+                                null
+                            )
+                            return@setMethodCallHandler
+                        }
+                    }
+                    Log.d(logTag, "Stop service (userInitiated=$userInitiatedStop)")
                     mainService?.let {
                         it.destroy()
                         result.success(true)
                     } ?: let {
                         result.success(false)
                     }
+                }
+                "restart_bk_profile" -> {
+                    // Do not close sessions before durable stop intent and a foreground handoff.
+                    val preferences = getSharedPreferences(KEY_SHARED_PREFERENCES, Context.MODE_PRIVATE)
+                    val previousStop = preferences.getBoolean(KEY_USER_STOPPED, false)
+                    if (!preferences.edit().putBoolean(KEY_USER_STOPPED, true).commit()) {
+                        result.error("PROFILE_STOP_PERSIST_FAILED", "Could not save the stop decision.", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        startActivity(Intent(this, BkProfileRestartActivity::class.java).apply {
+                            putExtra(BkProfileRestartActivity.EXTRA_OLD_PID, android.os.Process.myPid())
+                        })
+                    } catch (error: Exception) {
+                        preferences.edit().putBoolean(KEY_USER_STOPPED, previousStop).commit()
+                        result.error("PROFILE_RESTART_FAILED", "Could not start the profile restart activity.", null)
+                        return@setMethodCallHandler
+                    }
+                    FFI.closeAllSessions()
+                    mainService?.destroy()
+                    stopService(Intent(this, MainService::class.java))
+                    stopService(Intent(this, FloatingWindowService::class.java))
+                    result.success(true)
                 }
                 "check_permission" -> {
                     if (call.arguments is String) {
@@ -348,6 +392,10 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "check_service" -> {
+                    Companion.flutterMethodChannel?.invokeMethod(
+                        "on_state_changed",
+                        mapOf("name" to "service", "value" to MainService.isServiceAlive.toString())
+                    )
                     Companion.flutterMethodChannel?.invokeMethod(
                         "on_state_changed",
                         mapOf("name" to "input", "value" to InputService.isOpen.toString())

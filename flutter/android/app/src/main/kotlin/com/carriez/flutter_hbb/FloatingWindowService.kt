@@ -310,11 +310,8 @@ class FloatingWindowService : Service(), View.OnTouchListener {
          if (isServiceSyncEnabled) {
              popupMenu.menu.add(0, idSyncClipboard, 0, translate("Update client clipboard"))
          }
-         val idStopService = 2
-         val hideStopService = FFI.getBuildinOption("hide-stop-service") == "Y"
-         if (!hideStopService) {
-             popupMenu.menu.add(0, idStopService, 0, translate("Stop service"))
-         }
+         // Whole-service shutdown is only available from the confirmed
+         // dangerous-operation entry in Settings.
          popupMenu.setOnMenuItemClickListener { menuItem ->
              when (menuItem.itemId) {
                  idShowRustDesk -> {
@@ -323,10 +320,6 @@ class FloatingWindowService : Service(), View.OnTouchListener {
                  }
                 idSyncClipboard -> {
                      syncClipboard()
-                     true
-                 }
-                 idStopService -> {
-                     stopMainService()
                      true
                  }
                  else -> false
@@ -355,10 +348,6 @@ class FloatingWindowService : Service(), View.OnTouchListener {
 
     private fun syncClipboard() {
         MainActivity.rdClipboardManager?.syncClipboard(false)
-    }
-
-    private fun stopMainService() {
-        MainActivity.flutterMethodChannel?.invokeMethod("stop_service", null)
     }
 
     enum class KeepScreenOn {

@@ -3,7 +3,7 @@ use crate::{
     common::PORTABLE_APPNAME_RUNTIME_ENV_KEY,
     custom_server::*,
     ipc,
-    privacy_mode::win_topmost_window::{self, WIN_TOPMOST_INJECTED_PROCESS_EXE},
+    privacy_mode::win_topmost_window,
 };
 use base::message_proto::{DisplayInfo, Resolution, WindowsSession};
 use hbb_common::{
@@ -1451,47 +1451,20 @@ fn get_default_install_path() -> String {
 }
 
 pub fn check_update_broker_process() -> ResultType<()> {
-    let process_exe = win_topmost_window::INJECTED_PROCESS_EXE;
     let origin_process_exe = win_topmost_window::ORIGIN_PROCESS_EXE;
-
-    let exe_file = std::env::current_exe()?;
-    let Some(cur_dir) = exe_file.parent() else {
-        bail!("Cannot get parent of current exe file");
-    };
-    let cur_exe = cur_dir.join(process_exe);
-
-    // Force update broker exe if failed to check modified time.
-    let cmds = format!(
-        "
-        chcp 65001
-        taskkill /F /IM {process_exe}
-        copy /Y \"{origin_process_exe}\" \"{cur_exe}\"
-    ",
-        cur_exe = cur_exe.to_string_lossy(),
-    );
-
-    if !std::path::Path::new(&cur_exe).exists() {
-        run_cmds(cmds, false, "update_broker")?;
-        return Ok(());
-    }
-
-    let ori_modified = fs::metadata(origin_process_exe)?.modified()?;
-    if let Ok(metadata) = fs::metadata(&cur_exe) {
-        if let Ok(cur_modified) = metadata.modified() {
-            if cur_modified == ori_modified {
+    let cur_exe = crate::bk_windows_process::private_host_path()?;
+    if cur_exe.exists() {
+        let ori_modified = fs::metadata(origin_process_exe)?.modified()?;
+        if let Ok(metadata) = fs::metadata(&cur_exe) {
+            if metadata.modified().ok() == Some(ori_modified) {
                 return Ok(());
-            } else {
-                log::info!(
-                    "broker process updated, modify time from {:?} to {:?}",
-                    cur_modified,
-                    ori_modified
-                );
             }
         }
+        // Verify the canonical image path on the opened handle before stopping
+        // a broker. Never taskkill all processes that share an image name.
+        crate::bk_windows_process::stop_matching_processes(&cur_exe)?;
     }
-
-    run_cmds(cmds, false, "update_broker")?;
-
+    fs::copy(origin_process_exe, &cur_exe)?;
     Ok(())
 }
 
@@ -1871,6 +1844,33 @@ pub fn run_after_install() -> ResultType<()> {
     )
 }
 
+/// Executed only by the explicit helper command inside the uninstall script.
+/// The caller cannot supply a process ID or a directory.
+pub fn stop_installed_private_brokers() -> ResultType<()> {
+    let (_, directory, _, _) = get_install_info();
+    let expected = Path::new(&directory).join(crate::bk_windows_process::PRIVATE_HOST_EXE);
+    if expected.try_exists()? {
+        crate::bk_windows_process::stop_matching_processes(&expected)?;
+    }
+    Ok(())
+}
+
+fn private_broker_stop_command() -> ResultType<String> {
+    let helper = std::env::current_exe()?;
+    let helper = helper
+        .to_str()
+        .ok_or_else(|| anyhow!("Current executable path is not valid Unicode"))?;
+    validate_install_value(helper)?;
+    Ok(get_private_broker_stop_command_for_exe(helper))
+}
+
+fn get_private_broker_stop_command_for_exe(helper: &str) -> String {
+    format!(
+        "start \"\" /b /wait \"{helper}\" --bk-stop-private-host\r\n\
+         if not \"%errorlevel%\"==\"0\" exit /b %errorlevel%"
+    )
+}
+
 pub fn run_before_uninstall() -> ResultType<()> {
     run_cmds(get_before_uninstall(true)?, true, "before_install")
 }
@@ -1879,6 +1879,7 @@ fn get_before_uninstall(kill_self: bool) -> ResultType<String> {
     let app_name = crate::get_app_name();
     let (_, _, _, exe) = get_install_info();
     let remove_service = service_control_command("remove", &exe, false)?;
+    let stop_private_broker = private_broker_stop_command()?;
     let ext = app_name.to_lowercase();
     let filter = if kill_self {
         "".to_string()
@@ -1889,13 +1890,12 @@ fn get_before_uninstall(kill_self: bool) -> ResultType<String> {
         "
     chcp 65001
     {remove_service}
-    taskkill /F /IM {broker_exe}
-    taskkill /F /IM {app_name}.exe{filter}
+    {stop_private_broker}
+    taskkill /F /IM \"{app_name}.exe\"{filter}
     reg delete HKEY_CLASSES_ROOT\\.{ext} /f
     reg delete HKEY_CLASSES_ROOT\\{ext} /f
     netsh advfirewall firewall delete rule name=\"{app_name} Service\"
     ",
-        broker_exe = WIN_TOPMOST_INJECTED_PROCESS_EXE,
     ))
 }
 
@@ -3421,17 +3421,23 @@ pub fn uninstall_service(show_new_window: bool, _: bool) -> bool {
             return true;
         }
     };
+    let stop_private_broker = match private_broker_stop_command() {
+        Ok(command) => command,
+        Err(error) => {
+            log::error!("Failed to prepare private broker removal: {error}");
+            return true;
+        }
+    };
     Config::set_option("stop-service".into(), "Y".into());
     let cmds = format!(
         "
     chcp 65001
     {remove_service}
     if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\" del /f /q \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\"
-    taskkill /F /IM {broker_exe}
-    taskkill /F /IM {app_name}.exe{filter}
+    {stop_private_broker}
+    taskkill /F /IM \"{app_name}.exe\"{filter}
     ",
         app_name = crate::get_app_name(),
-        broker_exe = WIN_TOPMOST_INJECTED_PROCESS_EXE,
     );
     if let Err(err) = run_cmds(cmds, false, "uninstall") {
         Config::set_option("stop-service".into(), "".into());
@@ -3463,7 +3469,7 @@ fn get_install_service_commands(path: &str, exe: &str) -> ResultType<InstallComm
     let script = format!(
         "
 chcp 65001
-taskkill /F /IM {app_name}.exe{filter}
+taskkill /F /IM \"{app_name}.exe\"{filter}
 {tray_shortcut_commands}
 copy /Y \"%RUSTDESK_OUTPUT_DIR%\\{app_name} Tray.lnk\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\\"
 {import_config}
@@ -3661,7 +3667,7 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
 
     let filter = format!(" /FI \"PID ne {}\"", get_current_pid());
     let restore_service_cmd = if is_service_running {
-        format!("sc start {}", &app_name)
+        format!("sc start \"{}\"", &app_name)
     } else {
         "".to_owned()
     };
@@ -3693,8 +3699,8 @@ reg add {subkey} /f /v EstimatedSize /t REG_DWORD /d {size}
     let cmds = format!(
         "
 chcp 65001
-sc stop {app_name}
-taskkill /F /IM {app_name}.exe{filter}
+sc stop \"{app_name}\"
+taskkill /F /IM \"{app_name}.exe\"{filter}
 {reg_cmd}
 {copy_exe}
 {rename_exe}
@@ -4075,7 +4081,7 @@ fn service_control_command(operation: &str, exe: &str, installed_now: bool) -> R
     let is_create = matches!(operation, "create-service" | "create-service-with-rollback");
     let legacy = match operation {
         "create-service" | "create-service-with-rollback" => get_create_service(exe),
-        "remove" => format!("sc stop {app_name}\r\nsc delete {app_name}"),
+        "remove" => get_remove_service_commands(&app_name),
         _ => bail!("Unsupported service operation: {operation}"),
     };
     if legacy.is_empty() || (is_create && Config::get_option("stop-service") == "Y") {
@@ -4106,6 +4112,10 @@ fn service_control_command(operation: &str, exe: &str, installed_now: bool) -> R
     ))
 }
 
+fn get_remove_service_commands(app_name: &str) -> String {
+    format!("sc stop \"{app_name}\"\r\nsc delete \"{app_name}\"")
+}
+
 fn get_import_config(exe: &str) -> String {
     // --import-config does not register a service dispatcher, so SCM can report
     // a start failure even when import runs. Preserve this legacy contract for
@@ -4113,19 +4123,21 @@ fn get_import_config(exe: &str) -> String {
     if config::is_outgoing_only() {
         return "".to_string();
     }
-    let exe = escape_nested_cmd_ampersands(exe);
     let config_path = Config::file();
-    let config_path = escape_nested_cmd_ampersands(config_path.to_str().unwrap_or(""));
+    get_import_config_commands(&crate::get_app_name(), exe, config_path.to_str().unwrap_or(""))
+}
+
+fn get_import_config_commands(app_name: &str, exe: &str, config_path: &str) -> String {
+    let exe = escape_nested_cmd_ampersands(exe);
+    let config_path = escape_nested_cmd_ampersands(config_path);
     format!("
-sc stop {app_name}
-sc delete {app_name}
-sc create {app_name} binpath= \"\\\"{exe}\\\" --import-config \\\"{config_path}\\\"\" start= auto DisplayName= \"{app_name} Service\"
-sc start {app_name}
-sc stop {app_name}
-sc delete {app_name}
-",
-    app_name = crate::get_app_name(),
-)
+sc stop \"{app_name}\"
+sc delete \"{app_name}\"
+sc create \"{app_name}\" binpath= \"\\\"{exe}\\\" --import-config \\\"{config_path}\\\"\" start= auto DisplayName= \"{app_name} Service\"
+sc start \"{app_name}\"
+sc stop \"{app_name}\"
+sc delete \"{app_name}\"
+")
 }
 
 fn get_create_service(exe: &str) -> String {
@@ -4138,13 +4150,16 @@ fn get_create_service(exe: &str) -> String {
 if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\" del /f /q \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\{app_name} Tray.lnk\"
 ", app_name = crate::get_app_name())
     } else {
-        let exe = escape_nested_cmd_ampersands(exe);
-        format!("
-sc create {app_name} binpath= \"\\\"{exe}\\\" --service\" start= auto DisplayName= \"{app_name} Service\"
-sc start {app_name}
-",
-    app_name = crate::get_app_name())
+        get_create_service_commands(&crate::get_app_name(), exe)
     }
+}
+
+fn get_create_service_commands(app_name: &str, exe: &str) -> String {
+    let exe = escape_nested_cmd_ampersands(exe);
+    format!("
+sc create \"{app_name}\" binpath= \"\\\"{exe}\\\" --service\" start= auto DisplayName= \"{app_name} Service\"
+sc start \"{app_name}\"
+")
 }
 
 fn run_after_run_cmds(silent: bool) {
@@ -4203,14 +4218,20 @@ pub fn try_remove_temp_update_files() {
 
 #[inline]
 pub fn try_kill_broker() {
-    allow_err!(std::process::Command::new("cmd")
-        .arg("/c")
-        .arg(&format!(
-            "taskkill /F /IM {}",
-            WIN_TOPMOST_INJECTED_PROCESS_EXE
-        ))
-        .creation_flags(winapi::um::winbase::CREATE_NO_WINDOW)
-        .spawn());
+    allow_err!(std::thread::Builder::new()
+        .name("bk-private-host-cleanup".to_owned())
+        .spawn(|| {
+            let result = (|| -> std::io::Result<()> {
+                let expected = crate::bk_windows_process::private_host_path()?;
+                if expected.try_exists()? {
+                    crate::bk_windows_process::stop_matching_processes(&expected)?;
+                }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                log::warn!("Failed to clean up the verified private broker: {error}");
+            }
+        }));
 }
 
 pub fn message_box(text: &str) {
@@ -5012,6 +5033,84 @@ pub(super) fn get_pids_with_first_arg_by_wmic<S1: AsRef<str>, S2: AsRef<str>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Parse the generated command with Windows' own argument parser without
+    // executing SC or touching the real service manager.
+    fn service_command_args(command: &str) -> Vec<String> {
+        let wide: Vec<u16> = command.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut count = 0;
+        let args = unsafe { winapi::um::shellapi::CommandLineToArgvW(wide.as_ptr(), &mut count) };
+        assert!(!args.is_null());
+        let result = unsafe { std::slice::from_raw_parts(args, count as usize) }
+            .iter()
+            .map(|arg| {
+                let mut len = 0;
+                while unsafe { *(*arg).add(len) } != 0 {
+                    len += 1;
+                }
+                String::from_utf16(unsafe { std::slice::from_raw_parts(*arg, len) })
+                    .expect("Service command arguments must be valid UTF-16")
+            })
+            .collect();
+        unsafe { winapi::um::winbase::LocalFree(args as _) };
+        result
+    }
+
+    #[test]
+    fn legacy_service_commands_keep_brand_and_paths_in_single_arguments() {
+        for name in ["BK Remote", "RustDesk"] {
+            let exe = format!(r"C:\Program Files\{name}\{name}.exe");
+            let config = format!(r"C:\Users\Test User\AppData\Roaming\{name}\config.toml");
+            let create = get_create_service_commands(name, &exe);
+            let import = get_import_config_commands(name, &exe, &config);
+            let remove = get_remove_service_commands(name);
+            for (script, operations) in [
+                (create.as_str(), vec!["create", "start"]),
+                (import.as_str(), vec!["stop", "delete", "create", "start", "stop", "delete"]),
+                (remove.as_str(), vec!["stop", "delete"]),
+            ] {
+                let lines: Vec<_> = script.lines().filter(|line| !line.trim().is_empty()).collect();
+                assert_eq!(lines.len(), operations.len());
+                for (line, operation) in lines.into_iter().zip(operations) {
+                    let args = service_command_args(line);
+                    assert_eq!(args[0], "sc");
+                    assert_eq!(args[1], operation);
+                    assert_eq!(args[2], name);
+                    if operation == "create" {
+                        assert_eq!(args[3], "binpath=");
+                        let expected = if script == import {
+                            format!("\"{exe}\" --import-config \"{config}\"")
+                        } else {
+                            format!("\"{exe}\" --service")
+                        };
+                        assert_eq!(args[4], expected);
+                        assert_eq!(&args[5..], ["start=", "auto", "DisplayName=", &format!("{name} Service")]);
+                    } else {
+                        assert_eq!(args.len(), 3);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn private_broker_stop_command_is_deferred_and_quotes_the_helper() {
+        for exe in [
+            r"C:\Program Files\BK Remote\BK Remote.exe",
+            r"C:\BK & Team\BK Remote.exe",
+        ] {
+            let script = get_private_broker_stop_command_for_exe(exe);
+            let lines: Vec<_> = script.lines().collect();
+            assert_eq!(lines.len(), 2);
+            assert_eq!(
+                service_command_args(lines[0]),
+                ["start", "", "/b", "/wait", exe, "--bk-stop-private-host"]
+            );
+            assert_eq!(lines[1], "if not \"%errorlevel%\"==\"0\" exit /b %errorlevel%");
+            assert!(!script.contains("taskkill"));
+            assert!(!script.contains("/IM"));
+        }
+    }
 
     #[test]
     fn vbs_files_use_utf16le_with_bom_and_crlf() {

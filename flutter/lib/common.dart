@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:back_button_interceptor/back_button_interceptor.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -3623,6 +3622,16 @@ Future<bool> setServerConfig(
   List<RxString>? errMsgs,
   ServerConfig config,
 ) async {
+  final profile = jsonDecode(await bind.mainGetCommon(
+      key: 'bk-remote-native:{"op":"profiles"}'));
+  if (profile is! Map ||
+      profile['ok'] != true ||
+      profile['data'] is! Map ||
+      profile['data']['profile'] != 'manual') {
+    showToast(translate(
+        'Switch to the manual server profile before editing server addresses'));
+    return false;
+  }
   String removeEndSlash(String input) {
     if (input.endsWith('/')) {
       return input.substring(0, input.length - 1);
@@ -4107,7 +4116,7 @@ void earlyAssert() {
 
 void checkUpdate() {
   if (!isWeb) {
-    if (!bind.isCustomClient()) {
+    if (!bind.isCustomClient() || bind.mainUriPrefixSync() == 'bkremote://') {
       platformFFI.registerEventHandler(
           kCheckSoftwareUpdateFinish, kCheckSoftwareUpdateFinish,
           (Map<String, dynamic> evt) async {

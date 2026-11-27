@@ -1,3 +1,5 @@
+import 'package:flutter_hbb/common/widgets/bk_remote_profiles_page.dart';
+import 'package:flutter_hbb/common/widgets/bk_remote_update_channel.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -14,12 +16,13 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../../common.dart';
 import '../../common/widgets/dialog.dart';
 import '../../common/widgets/login.dart';
+import '../../common/widgets/bk_remote_devices_page.dart';
 import '../../consts.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
+import '../../models/server_model.dart';
 import '../widgets/deploy_dialog.dart';
 import '../../models/shortcut_model.dart';
-import '../widgets/dialog.dart';
 import 'home_page.dart';
 import 'mobile_keyboard_shortcuts_page.dart';
 import 'scan_page.dart';
@@ -289,6 +292,7 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     Provider.of<FfiModel>(context);
+    final serverModel = Provider.of<ServerModel>(context);
     final outgoingOnly = bind.isOutgoingOnly();
     final incomingOnly = bind.isIncomingOnly();
     final customClientSection = CustomSettingsSection(
@@ -647,13 +651,14 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
           gFFI.invokeMethod(AndroidChannel.kSetStartOnBootOpt, toValue);
         }));
 
-    if (!bind.isCustomClient()) {
+    if (!bind.isCustomClient() || bind.mainUriPrefixSync() == 'bkremote://') {
       enhancementsTiles.add(
         SettingsTile.switchTile(
           initialValue: _checkUpdateOnStartup,
           title:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(translate('Check for software update on startup')),
+            const BkRemoteUpdateChannelNotice(),
           ]),
           onToggle: (bool toValue) async {
             await mainSetLocalBoolOption(kOptionEnableCheckUpdate, toValue);
@@ -741,6 +746,13 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             title: Text(translate('Account')),
             tiles: [
               SettingsTile(
+                title: Text(translate('Team devices')),
+                leading: const Icon(Icons.devices),
+                onPressed: (context) => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const BkRemoteDevicesPage()),
+                ),
+              ),
+              SettingsTile(
                 title: Obx(() => Text(gFFI.userModel.userName.value.isEmpty
                     ? translate('Login')
                     : '${translate('Logout')} (${gFFI.userModel.accountLabelWithHandle})')),
@@ -768,13 +780,11 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
         SettingsSection(title: Text(translate("Settings")), tiles: [
           if (!disabledSettings && !_hideNetwork && !_hideServer)
             SettingsTile(
-                title: Text(translate('ID/Relay Server')),
+                title: Text(translate('Server profiles')),
                 leading: Icon(Icons.cloud),
                 onPressed: (context) {
-                  showServerSettings(gFFI.dialogManager, (callback) async {
-                    _isUsingPublicServer = await bind.mainIsUsingPublicServer();
-                    setState(callback);
-                  });
+                  Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const BkRemoteProfilesPage()));
                 }),
           if (!_hideNetwork && !_hideProxy)
             SettingsTile(
@@ -1104,6 +1114,22 @@ class _SettingsState extends State<SettingsPage> with WidgetsBindingObserver {
             )
           ],
         ),
+        if (isAndroid && !outgoingOnly && serverModel.isStart)
+          SettingsSection(
+            title: Text(translate('Remote maintenance')),
+            tiles: [
+              SettingsTile(
+                title: Text(translate('Stop service')),
+                description: Text(translate('remote_service_stop_warning')),
+                leading:
+                    Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+                onPressed: (context) async {
+                  if (!serverModel.isStart) return;
+                  await serverModel.toggleService();
+                },
+              ),
+            ],
+          ),
       ],
     );
     return settings;
