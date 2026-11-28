@@ -2447,7 +2447,7 @@ class __PrinterState extends State<_Printer> {
       return Align(
         alignment: Alignment.topLeft,
         child:
-            Text(translate('printer-requires-installed-{$appName}-client-tip')),
+            Text(translate('printer-requires-installed-{$appDisplayName}-client-tip')),
       ).marginOnly(left: _kCardLeftMargin);
     }
 

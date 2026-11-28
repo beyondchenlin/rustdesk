@@ -3061,7 +3061,7 @@ int versionCmp(String v1, String v2) {
 }
 
 String getWindowName({WindowType? overrideType}) {
-  final name = bind.mainGetAppNameSync();
+  final name = appDisplayName;
   switch (overrideType ?? kWindowType) {
     case WindowType.Main:
       return name;
@@ -4231,6 +4231,12 @@ String get appName {
   }
   return _appName;
 }
+
+/// A display label, never a configuration, printer or filesystem identity.
+String get appDisplayName =>
+    !isWeb && (isWindows || isAndroid) && appName == 'RustDesk'
+        ? 'BK Remote'
+        : appName;
 
 String getConnectionText(bool secure, bool direct, String streamType) {
   String connectionText;

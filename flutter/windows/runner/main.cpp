@@ -93,8 +93,14 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     }
   }
 
+  const std::wstring app_display_name =
+      app_name == L"RustDesk" ? L"BK Remote" : app_name;
+
   // Uri links dispatch
-  HWND hwnd = ::FindWindowW(getWindowClassName(), app_name.c_str());
+  HWND hwnd = ::FindWindowW(getWindowClassName(), app_display_name.c_str());
+  if (hwnd == NULL && app_display_name != app_name) {
+    hwnd = ::FindWindowW(getWindowClassName(), app_name.c_str());
+  }
   if (hwnd != NULL) {
     // Allow multiple flutter instances when being executed by parameters
     // contained in whitelists.
@@ -173,11 +179,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   std::wstring window_title;
   if (is_cm_page) {
-    window_title = app_name + L" - Connection Manager";
+    window_title = app_display_name + L" - Connection Manager";
   } else if (is_install_page) {
-    window_title = app_name + L" - Install";
+    window_title = app_display_name + L" - Install";
   } else {
-    window_title = app_name;
+    window_title = app_display_name;
   }
   if (!window.CreateAndShow(window_title, origin, size, !is_cm_page)) {
       return EXIT_FAILURE;

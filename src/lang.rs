@@ -263,6 +263,30 @@ pub fn translate_locale(name: String, locale: &str) -> String {
     let (name, placeholder_value) = extract_placeholder(&name);
     let replace = |s: &&str| {
         let mut s = s.to_string();
+        // Rebrand local product text before inserting user or remote-device values.
+        #[cfg(any(target_os = "windows", target_os = "android"))]
+        if crate::is_rustdesk()
+            && matches!(
+                name.as_str(),
+                "Keep RustDesk background service"
+                    | "Show RustDesk"
+                    | "About RustDesk"
+                    | "RustDesk storage"
+                    | "install_tip"
+                    | "android_input_permission_tip1"
+                    | "android_input_permission_tip2"
+                    | "android_open_battery_optimizations_tip"
+                    | "still_click_uac_tip"
+                    | "verify_rustdesk_password_tip"
+                    | "scam_text1"
+                    | "allow-only-conn-window-open-tip"
+                    | "floating_window_tip"
+                    | "allow-insecure-tls-fallback-tip"
+                    | "disable-udp-tip"
+            )
+        {
+            s = s.replace("RustDesk", &crate::common::get_app_display_name());
+        }
         if let Some(value) = placeholder_value.as_ref() {
             s = s.replace("{}", &value);
         }

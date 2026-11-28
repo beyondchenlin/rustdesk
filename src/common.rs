@@ -2705,6 +2705,16 @@ pub fn get_builtin_option(key: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Presentation only: keep configuration, protocol and update identities unchanged.
+pub fn get_app_display_name() -> String {
+    let name = get_app_name();
+    #[cfg(any(target_os = "windows", target_os = "android"))]
+    if name == "RustDesk" {
+        return "BK Remote".to_owned();
+    }
+    name
+}
+
 #[inline]
 pub fn is_custom_client() -> bool {
     get_app_name() != "RustDesk"

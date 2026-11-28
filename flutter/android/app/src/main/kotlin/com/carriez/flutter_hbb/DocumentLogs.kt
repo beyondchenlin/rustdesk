@@ -17,7 +17,8 @@ import kotlin.concurrent.withLock
 internal class DocumentLogs(private val context: Context) {
     private val resolver = context.contentResolver
     private val prefs = context.getSharedPreferences(DOCUMENT_PREFS, Context.MODE_PRIVATE)
-    private val appName = context.applicationInfo.loadLabel(context.packageManager).toString()
+    // Preserve the existing log path when the display label changes.
+    private val appName = "RustDesk"
     private val appDirectoryId = "$PARENT_ID/$appName"
     private val directoryId = "$appDirectoryId/Logs"
     val directoryPath = directoryId.substringAfter(':')
