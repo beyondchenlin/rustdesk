@@ -8,9 +8,9 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 MASTER = ROOT / 'assets/brand/BK-Remote-Official-Logo.png'
-EXPECTED = 'c1eac2a9a49541a8ed7fbee8a0780f564432131a6e4332d92fbf4753d49dbec1'
+EXPECTED = 'a14aa2a192bf888bb63b0658b7459e1884b1e49f042d5be486c2feaa8404e7cb'
 raw = MASTER.read_bytes()
-if len(raw) != 342376 or hashlib.sha256(raw).hexdigest() != EXPECTED:
+if len(raw) != 725681 or hashlib.sha256(raw).hexdigest() != EXPECTED:
     raise SystemExit('Official brand master hash does not match')
 original = Image.open(BytesIO(raw)).convert('RGBA')
 if original.size != (1254, 1254):
@@ -41,13 +41,14 @@ def save(path, size, monochrome=False):
         im.save(p, optimize=True)
     outputs.append({'path': path, 'size': list(im.size), 'sha256': hashlib.sha256(p.read_bytes()).hexdigest(), 'monochrome': monochrome})
 
-for path in ['res/icon.png', 'flutter/assets/icon.png']:
+for path in ['res/icon.png', 'flutter/assets/icon.png', 'flutter/android/app/src/main/res/drawable-nodpi/bk_remote_icon.png']:
     save(path, 512)
 for path in ['res/icon.ico', 'res/tray-icon.ico', 'flutter/windows/runner/resources/app_icon.ico']:
     save(path, 256)
 for density, size, notification in [('mdpi',48,24),('hdpi',72,36),('xhdpi',96,48),('xxhdpi',144,72),('xxxhdpi',192,96)]:
     base = 'flutter/android/app/src/main/res/mipmap-' + density
     save(base + '/ic_launcher.png', size)
+    save(base + '/ic_launcher_round.png', size)
     save(base + '/ic_stat_logo.png', notification, monochrome=True)
 manifest = {'master': str(MASTER.relative_to(ROOT)).replace('\\','/'), 'master_sha256': EXPECTED, 'master_size': [1254,1254], 'visible_alpha_threshold': 32, 'crop_bounds': list(bounds), 'content_fraction': .92, 'generator': 'scripts/bk-remote/generate-brand.py', 'assets': outputs}
 (ROOT / 'assets/brand/DERIVED-ASSETS.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

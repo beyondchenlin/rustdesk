@@ -1,16 +1,16 @@
 {
   "master": "assets/brand/BK-Remote-Official-Logo.png",
-  "master_sha256": "c1eac2a9a49541a8ed7fbee8a0780f564432131a6e4332d92fbf4753d49dbec1",
+  "master_sha256": "a14aa2a192bf888bb63b0658b7459e1884b1e49f042d5be486c2feaa8404e7cb",
   "master_size": [
     1254,
     1254
   ],
   "visible_alpha_threshold": 32,
   "crop_bounds": [
-    50,
-    372,
-    1206,
-    883
+    62,
+    140,
+    1185,
+    1122
   ],
   "content_fraction": 0.92,
   "generator": "scripts/bk-remote/generate-brand.py",
@@ -21,7 +21,7 @@
         512,
         512
       ],
-      "sha256": "5aecadfd9ed20cae2f093ceb14d409f4def61732489b8730a688b7bdf33696df",
+      "sha256": "d13fd0ba8d4852a1d4a9378a15797740f51946154010d91cf126fe0d9458b9f7",
       "monochrome": false
     },
     {
@@ -30,7 +30,16 @@
         512,
         512
       ],
-      "sha256": "5aecadfd9ed20cae2f093ceb14d409f4def61732489b8730a688b7bdf33696df",
+      "sha256": "d13fd0ba8d4852a1d4a9378a15797740f51946154010d91cf126fe0d9458b9f7",
+      "monochrome": false
+    },
+    {
+      "path": "flutter/android/app/src/main/res/drawable-nodpi/bk_remote_icon.png",
+      "size": [
+        512,
+        512
+      ],
+      "sha256": "d13fd0ba8d4852a1d4a9378a15797740f51946154010d91cf126fe0d9458b9f7",
       "monochrome": false
     },
     {
@@ -39,7 +48,7 @@
         256,
         256
       ],
-      "sha256": "6660fc9add1556d0032f30141b95d6234c1eefeacf1d1ba58cfb2b9ea7dd9711",
+      "sha256": "3059e684ec72d6b1ad794beb704e92e7f6d968d78d2d532bb9909a1ecdabcc14",
       "monochrome": false
     },
     {
@@ -48,7 +57,7 @@
         256,
         256
       ],
-      "sha256": "6660fc9add1556d0032f30141b95d6234c1eefeacf1d1ba58cfb2b9ea7dd9711",
+      "sha256": "3059e684ec72d6b1ad794beb704e92e7f6d968d78d2d532bb9909a1ecdabcc14",
       "monochrome": false
     },
     {
@@ -57,7 +66,7 @@
         256,
         256
       ],
-      "sha256": "6660fc9add1556d0032f30141b95d6234c1eefeacf1d1ba58cfb2b9ea7dd9711",
+      "sha256": "3059e684ec72d6b1ad794beb704e92e7f6d968d78d2d532bb9909a1ecdabcc14",
       "monochrome": false
     },
     {
@@ -66,7 +75,16 @@
         48,
         48
       ],
-      "sha256": "0e8f6c69941c38deabc6eab7f90d1be6ec5dd01f46709a5f831cc4e168778c2d",
+      "sha256": "9bb7e955df99e3f41102add54bc90e225524c1118f3a07eab64b56c0f755a5e2",
+      "monochrome": false
+    },
+    {
+      "path": "flutter/android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png",
+      "size": [
+        48,
+        48
+      ],
+      "sha256": "9bb7e955df99e3f41102add54bc90e225524c1118f3a07eab64b56c0f755a5e2",
       "monochrome": false
     },
     {
@@ -75,7 +93,7 @@
         24,
         24
       ],
-      "sha256": "ea9b286b730e756ca3479807f8ffea089fb2535e994953de33b66b99fe6faaed",
+      "sha256": "9e40f8f38aa0c68afe1d933f55e108b68eb6d45a0eac8499500789cbb2b3e7fc",
       "monochrome": true
     },
     {
@@ -84,7 +102,16 @@
         72,
         72
       ],
-      "sha256": "332180e5ffc999a73d10c7626488caf84ac63fa827de1c0eeaa32c896f44c16b",
+      "sha256": "363a22799d374740c5e1da5c564acba3c894d8ddd36ff71ec47f74ea7ffc98e2",
+      "monochrome": false
+    },
+    {
+      "path": "flutter/android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png",
+      "size": [
+        72,
+        72
+      ],
+      "sha256": "363a22799d374740c5e1da5c564acba3c894d8ddd36ff71ec47f74ea7ffc98e2",
       "monochrome": false
     },
     {
@@ -93,7 +120,7 @@
         36,
         36
       ],
-      "sha256": "f88c07da64877cb7498a116a9e378156ca4f46ed8252da2b51c69ad1934eb77f",
+      "sha256": "2f4bf009df57d0ab6a350f2eb62228206e3a0bf1ab183c8f759f148bce509cda",
       "monochrome": true
     },
     {
@@ -102,7 +129,16 @@
         96,
         96
       ],
-      "sha256": "174686bc3086f43d1ec88f6f8afd1c6208b1755473741e5ff50705be5dbeece6",
+      "sha256": "292d76e41f7762202f3d33ab8602b6bdd7b90109a71906e85ca3fe98ecc3cd08",
+      "monochrome": false
+    },
+    {
+      "path": "flutter/android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png",
+      "size": [
+        96,
+        96
+      ],
+      "sha256": "292d76e41f7762202f3d33ab8602b6bdd7b90109a71906e85ca3fe98ecc3cd08",
       "monochrome": false
     },
     {
@@ -111,7 +147,7 @@
         48,
         48
       ],
-      "sha256": "4715b8a6616aabb508d396c5973a24814768d2662b0ba860510844222c439412",
+      "sha256": "22727d0e7451906aeb2c54e2c1c939f057cdf0ce203fb7673bb29c1433f638d2",
       "monochrome": true
     },
     {
@@ -120,7 +156,16 @@
         144,
         144
       ],
-      "sha256": "ae8dacf61cb81a177ffbc99febb7652dba0f4bcac1bffdfd55b86cb47a4b5e1f",
+      "sha256": "ba300ceac6550cf7ee180df7aad313daa0775656b5ecfe6145ab47047248b3ec",
+      "monochrome": false
+    },
+    {
+      "path": "flutter/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png",
+      "size": [
+        144,
+        144
+      ],
+      "sha256": "ba300ceac6550cf7ee180df7aad313daa0775656b5ecfe6145ab47047248b3ec",
       "monochrome": false
     },
     {
@@ -129,7 +174,7 @@
         72,
         72
       ],
-      "sha256": "57b352be78d74c2703fde45e7c15853e34a83e800cfd131d1cc21f18ad412734",
+      "sha256": "bb4a6bb800945bc07afd4633e03b5aa6caa0e65a0b9dad7ccf1aa65c86cb89be",
       "monochrome": true
     },
     {
@@ -138,7 +183,16 @@
         192,
         192
       ],
-      "sha256": "e189c4805384233ab9ee491105ec33ac1a1c0f62b9601a8437429fcb4cc94e19",
+      "sha256": "0cc47bba13f325592d6bb2c87125b75757f82d99d4bfd818e5b4d720a4a40bc3",
+      "monochrome": false
+    },
+    {
+      "path": "flutter/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png",
+      "size": [
+        192,
+        192
+      ],
+      "sha256": "0cc47bba13f325592d6bb2c87125b75757f82d99d4bfd818e5b4d720a4a40bc3",
       "monochrome": false
     },
     {
@@ -147,84 +201,8 @@
         96,
         96
       ],
-      "sha256": "08013cdc04b678ab28ad0656b6425786a9c6170ba97718302bdae15a93e96547",
+      "sha256": "b3ff0b60bd658bbf15b35eadc3cfeee83eb0380b780885faa76e99ab6612b0b8",
       "monochrome": true
-    },
-    {
-      "path": "flutter/android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png",
-      "size": [
-        48,
-        48
-      ],
-      "sha256": "0e8f6c69941c38deabc6eab7f90d1be6ec5dd01f46709a5f831cc4e168778c2d",
-      "monochrome": false,
-      "reused_from": "flutter/android/app/src/main/res/mipmap-mdpi/ic_launcher.png"
-    },
-    {
-      "path": "flutter/android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png",
-      "size": [
-        72,
-        72
-      ],
-      "sha256": "332180e5ffc999a73d10c7626488caf84ac63fa827de1c0eeaa32c896f44c16b",
-      "monochrome": false,
-      "reused_from": "flutter/android/app/src/main/res/mipmap-hdpi/ic_launcher.png"
-    },
-    {
-      "path": "flutter/android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png",
-      "size": [
-        96,
-        96
-      ],
-      "sha256": "174686bc3086f43d1ec88f6f8afd1c6208b1755473741e5ff50705be5dbeece6",
-      "monochrome": false,
-      "reused_from": "flutter/android/app/src/main/res/mipmap-xhdpi/ic_launcher.png"
-    },
-    {
-      "path": "flutter/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png",
-      "size": [
-        144,
-        144
-      ],
-      "sha256": "ae8dacf61cb81a177ffbc99febb7652dba0f4bcac1bffdfd55b86cb47a4b5e1f",
-      "monochrome": false,
-      "reused_from": "flutter/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png"
-    },
-    {
-      "path": "flutter/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png",
-      "size": [
-        192,
-        192
-      ],
-      "sha256": "e189c4805384233ab9ee491105ec33ac1a1c0f62b9601a8437429fcb4cc94e19",
-      "monochrome": false,
-      "reused_from": "flutter/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"
-    },
-    {
-      "path": "flutter/android/app/src/main/res/drawable-nodpi/bk_remote_icon.png",
-      "size": [
-        512,
-        512
-      ],
-      "sha256": "5aecadfd9ed20cae2f093ceb14d409f4def61732489b8730a688b7bdf33696df",
-      "monochrome": false,
-      "reused_from": "res/icon.png"
     }
-  ],
-  "reuse_source": {
-    "repository": "D:\\demo2\\rustdesk",
-    "commit": "bb1e26cc0",
-    "method": "Byte-for-byte copy; no image generation, resizing, or recoloring was run."
-  },
-  "native_resource_references": {
-    "adaptive_foreground": "flutter/android/app/src/main/res/drawable/bk_remote_launcher_foreground.xml",
-    "adaptive_inset_dp": 18,
-    "adaptive_background": "Existing official white background retained.",
-    "floating": "flutter/android/app/src/main/res/drawable/floating_window.xml",
-    "floating_size_dp": [
-      320,
-      320
-    ],
-    "note": "Native drawable references adapt existing raster assets without modifying pixels. The archived generator describes the original 15 derivatives."
-  }
+  ]
 }
