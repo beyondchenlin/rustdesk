@@ -7,61 +7,10 @@ import '../../common.dart';
 import '../../common/bk_remote_account_client.dart';
 import '../../common/bk_remote_device_time.dart';
 import '../../common/bk_remote_native_presence.dart';
-import '../../desktop/pages/desktop_home_page.dart' show setPasswordDialog;
 import '../../models/bk_remote_model.dart';
 import '../../models/platform_model.dart';
 import '../../models/user_model.dart';
 import '../widgets/login.dart';
-
-class BkRemotePasswordSetup extends StatefulWidget {
-  const BkRemotePasswordSetup({super.key});
-
-  @override
-  State<BkRemotePasswordSetup> createState() => _BkRemotePasswordSetupState();
-}
-
-class _BkRemotePasswordSetupState extends State<BkRemotePasswordSetup> {
-  bool _required = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _refresh();
-  }
-
-  Future<void> _refresh() async {
-    final isSet = await bind.mainGetCommon(key: 'permanent-password-set');
-    final mode = await bind.mainGetOption(key: 'approve-mode');
-    final method = await bind.mainGetOption(key: 'verification-method');
-    if (!mounted) return;
-    setState(() => _required = isSet != 'true' &&
-        mode == 'password' &&
-        method == 'use-permanent-password');
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_required) return const SizedBox.shrink();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(translate(
-                'Set a permanent password before accepting remote sessions')),
-            const SizedBox(height: 8),
-            FilledButton.icon(
-              onPressed: () => setPasswordDialog(notEmptyCallback: _refresh),
-              icon: const Icon(Icons.key),
-              label: Text(translate('Set permanent password')),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 class BkRemoteDevicesPage extends StatefulWidget {
   const BkRemoteDevicesPage({super.key});
@@ -434,7 +383,6 @@ class _BkRemoteDevicesPageState extends State<BkRemoteDevicesPage> {
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 820),
           child: ListView(padding: const EdgeInsets.all(16), children: [
-            const BkRemotePasswordSetup(),
             Text(translate(
                 'Team access does not share device passwords. First connections use the target device password.')),
             if (_origin.isNotEmpty)

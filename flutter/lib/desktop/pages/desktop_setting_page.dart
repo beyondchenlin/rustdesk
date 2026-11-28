@@ -2337,7 +2337,6 @@ class _AccountState extends State<_Account> {
         _Card(title: 'Account', children: [
           accountAction(),
           useInfo(),
-          const BkRemotePasswordSetup(),
           _Button('Team devices', () => Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => const BkRemoteDevicesPage()),
           )),

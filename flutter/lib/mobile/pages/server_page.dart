@@ -9,9 +9,12 @@ import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 
 import '../../common.dart';
-import '../../common/widgets/bk_remote_devices_page.dart';
+import '../../common/bk_remote_profile_status.dart';
+import '../../common/bk_remote_profiles.dart';
+import '../../common/widgets/bk_remote_profiles_page.dart';
 import '../../common/widgets/dialog.dart';
 import '../../consts.dart';
+import '../../models/bk_remote_model.dart';
 import '../../models/model.dart';
 import '../../models/platform_model.dart';
 import '../../models/server_model.dart';
@@ -184,14 +187,44 @@ class _DropDownAction extends StatelessWidget {
 
 class _ServerPageState extends State<ServerPage> {
   Timer? _updateTimer;
+  final _profileController = BkProfileController(
+    request: bkRemoteNative,
+    restartAndroid: () async =>
+        await platformFFI.invokeMethod('restart_bk_profile') == true,
+  );
+  AsyncSnapshot<Map<String, dynamic>> _profileState =
+      const AsyncSnapshot.nothing();
+  bool _profileRefreshInFlight = false;
 
   @override
   void initState() {
     super.initState();
     _updateTimer = periodic_immediate(const Duration(seconds: 3), () async {
-      await gFFI.serverModel.fetchID();
+      await _refreshProfileState();
+      if (mounted) await gFFI.serverModel.fetchID();
     });
     gFFI.serverModel.checkAndroidPermission();
+  }
+
+  Future<void> _refreshProfileState() async {
+    if (!mounted || _profileRefreshInFlight) return;
+    _profileRefreshInFlight = true;
+    try {
+      final state = await _profileController.load();
+      if (mounted) {
+        setState(() {
+          _profileState = AsyncSnapshot.withData(ConnectionState.done, state);
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _profileState = AsyncSnapshot.withError(ConnectionState.done, error);
+        });
+      }
+    } finally {
+      _profileRefreshInFlight = false;
+    }
   }
 
   @override
@@ -213,9 +246,8 @@ class _ServerPageState extends State<ServerPage> {
                       mainAxisAlignment: MainAxisAlignment.start,
                       children: [
                         buildPresetPasswordWarningMobile(),
-                        const BkRemotePasswordSetup(),
                         gFFI.serverModel.isStart
-                            ? ServerInfo()
+                            ? ServerInfo(profileState: _profileState)
                             : ServiceNotRunningNotification(),
                         const ConnectionManager(),
                         const PermissionChecker(),
@@ -461,8 +493,9 @@ class ScamWarningDialogState extends State<ScamWarningDialog> {
 class ServerInfo extends StatelessWidget {
   final model = gFFI.serverModel;
   final emptyController = TextEditingController(text: "-");
+  final AsyncSnapshot<Map<String, dynamic>> profileState;
 
-  ServerInfo({Key? key}) : super(key: key);
+  ServerInfo({Key? key, required this.profileState}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -483,6 +516,42 @@ class ServerInfo extends StatelessWidget {
     }
 
     Widget ConnectionStateNotification() {
+      if (profileState.connectionState != ConnectionState.done) {
+        return Row(children: [
+          const SizedBox(
+                  width: 20, height: 20, child: CircularProgressIndicator())
+              .marginOnly(left: 4, right: iconMarginRight),
+          Expanded(child: Text('${translate('Server profiles')}...'))
+        ]);
+      }
+      final profileError = profileState.hasError || !profileState.hasData
+          ? bkProfileReadError
+          : bkRemoteProfileBlockReason(profileState.requireData);
+      if (profileError != null) {
+        final canOpenProfiles = !bind.isDisableSettings() &&
+            bind.mainGetBuildinOption(key: kOptionHideNetworkSetting) != 'Y' &&
+            bind.mainGetBuildinOption(key: kOptionHideServerSetting) != 'Y';
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Icon(Icons.warning_amber_sharp,
+                      color: colorNegative, size: iconSize)
+                  .marginOnly(right: iconMarginRight),
+              Expanded(child: Text(translate(profileError)))
+            ]),
+            if (canOpenProfiles)
+              TextButton.icon(
+                icon: const Icon(Icons.cloud),
+                label: Text(translate('Server profiles')),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const BkRemoteProfilesPage()),
+                ),
+              ).marginOnly(left: 39),
+          ],
+        );
+      }
       if (serverModel.connectStatus == -1) {
         return Row(children: [
           const Icon(Icons.warning_amber_sharp,

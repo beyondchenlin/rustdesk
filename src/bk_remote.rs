@@ -59,7 +59,6 @@ pub fn initialize_brand() {
         let mut defaults = config::DEFAULT_SETTINGS.write().unwrap();
         for (key, value) in [
             ("approve-mode", "password"),
-            ("verification-method", "use-permanent-password"),
             ("enable-keyboard", "Y"),
             ("enable-file-transfer", "Y"),
         ] {

@@ -21,6 +21,9 @@ fn request(audience: String) -> AccountRequest {
 }
 
 fn read_request(stream: &mut TcpStream) -> String {
+    // Windows accepted sockets inherit the nonblocking listener mode.
+    // The fixture reads synchronously with the existing bounded timeout.
+    stream.set_nonblocking(false).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(3)))
         .unwrap();
@@ -85,6 +88,21 @@ fn fixture(
 
 fn direct_client() -> Client {
     finish_client(Client::builder().use_rustls_tls(), None).unwrap()
+}
+
+#[test]
+fn accepted_nonblocking_stream_reads_a_delayed_request() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let mut sender = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (mut accepted, _) = listener.accept().unwrap();
+    let expected = "GET /delayed HTTP/1.1\r\nHost: fixture\r\nContent-Length: 0\r\n\r\n";
+    let worker = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(150));
+        sender.write_all(expected.as_bytes()).unwrap();
+    });
+    assert_eq!(read_request(&mut accepted), expected);
+    worker.join().unwrap();
 }
 
 #[test]
